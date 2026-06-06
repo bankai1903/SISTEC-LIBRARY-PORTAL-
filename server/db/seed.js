@@ -249,7 +249,12 @@ async function seed() {
 
 // If run directly
 if (require.main === module) {
-  seed();
+  seed().then(() => {
+    process.exit(0);
+  }).catch(err => {
+    console.error(err);
+    process.exit(1);
+  });
 }
 
 module.exports = seed;
