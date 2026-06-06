@@ -57,8 +57,15 @@ app.use((err, req, res, next) => {
   return res.status(400).json({ error: err.message || 'An upload error occurred.' });
 });
 
-// Initialize database then start server
-initDatabase().then(() => {
+const seed = require('./db/seed');
+
+// Initialize database, auto-seed default data, then start server
+initDatabase().then(async () => {
+  try {
+    await seed();
+  } catch (seedErr) {
+    console.error('Failed to auto-seed database on startup:', seedErr);
+  }
   app.listen(PORT, () => {
     console.log(`=============================================`);
     console.log(` Library Management Server is active!`);

@@ -184,16 +184,21 @@ async function seed() {
       }
     ];
 
-    for (const b of books) {
-      const categoryId = allCatMap[b.category] || allCatMap['Core Computer Science'];
-      const branchId = branchMap[b.branch];
-      
-      await dbQuery.run(`
-        INSERT INTO books (title, author, category_id, branch_id, priority, pdf_url)
-        VALUES (?, ?, ?, ?, ?, ?)
-      `, [b.title, b.author, categoryId, branchId, b.priority, b.pdf_url]);
+    const existingBooks = await dbQuery.get('SELECT COUNT(*) as count FROM books');
+    if (existingBooks && existingBooks.count > 0) {
+      console.log('Books already seeded. Skipping books seeding.');
+    } else {
+      for (const b of books) {
+        const categoryId = allCatMap[b.category] || allCatMap['Core Computer Science'];
+        const branchId = branchMap[b.branch];
+        
+        await dbQuery.run(`
+          INSERT INTO books (title, author, category_id, branch_id, priority, pdf_url)
+          VALUES (?, ?, ?, ?, ?, ?)
+        `, [b.title, b.author, categoryId, branchId, b.priority, b.pdf_url]);
+      }
+      console.log('Books seeded.');
     }
-    console.log('Books seeded.');
 
     // 4. Seed Users
     const salt = await bcrypt.genSalt(10);
