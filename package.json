@@ -7,7 +7,9 @@
     "server": "npm run start --prefix server",
     "client": "npm run dev --prefix client",
     "dev": "concurrently \"npm run server\" \"npm run client\"",
-    "install-all": "npm install && npm install --prefix server && npm install --prefix client"
+    "install-all": "npm install && npm install --prefix server && npm install --prefix client",
+    "build": "npm run install-all && npm run build --prefix client",
+    "start": "node server/server.js"
   },
   "dependencies": {
     "concurrently": "^8.2.2"
