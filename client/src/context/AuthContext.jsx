@@ -1,6 +1,22 @@
-import React, { createContext, useContext, useState, useEffect } from 'react';
+/* eslint-disable react-refresh/only-export-components */
+import { createContext, useContext, useState, useEffect, useCallback } from 'react';
 
-export const BASE_URL = window.location.port ? `${window.location.protocol}//${window.location.hostname}:5000` : window.location.origin;
+const getBaseUrl = () => {
+  if (typeof window !== 'undefined') {
+    const saved = localStorage.getItem('lib_server_url');
+    if (saved) return saved;
+  }
+  // Check if running inside Capacitor (native app)
+  const isCapacitor = typeof window !== 'undefined' && window.Capacitor !== undefined;
+  if (isCapacitor) {
+    // Default to the host computer's current local Wi-Fi IP.
+    // If testing on another network, use the settings gear icon to update the IP.
+    return 'http://192.168.1.3:5000';
+  }
+  return window.location.port ? `${window.location.protocol}//${window.location.hostname}:5000` : window.location.origin;
+};
+
+export const BASE_URL = getBaseUrl();
 
 const AuthContext = createContext(null);
 
@@ -37,7 +53,7 @@ export const AuthProvider = ({ children }) => {
     } catch (networkErr) {
       // C-3/L-4 FIX: Network failure (server offline) must NOT log the user out.
       // Only auth errors (401/403) should clear the session.
-      throw new Error('Server is unreachable. Please check your connection and try again.');
+      throw new Error('Server is unreachable. Please check your connection and try again.', { cause: networkErr });
     }
 
     if (response.status === 401 || response.status === 403) {
@@ -55,7 +71,7 @@ export const AuthProvider = ({ children }) => {
     return data;
   };
 
-  const loadUser = async () => {
+  const loadUser = useCallback(async () => {
     if (!token) {
       setUser(null);
       setLoading(false);
@@ -82,11 +98,14 @@ export const AuthProvider = ({ children }) => {
     } finally {
       setLoading(false);
     }
-  };
+  }, [token]);
 
   useEffect(() => {
-    loadUser();
-  }, [token]);
+    const timer = setTimeout(() => {
+      loadUser();
+    }, 0);
+    return () => clearTimeout(timer);
+  }, [loadUser]);
 
   const login = async (username, password) => {
     const url = `${BASE_URL}/api/auth/login`;

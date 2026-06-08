@@ -25,8 +25,8 @@ const upload = multer({
     }
     cb(null, true);
   },
-  // C-2 FIX: Limit individual file size to 50 MB to prevent disk-fill attacks
-  limits: { fileSize: 50 * 1024 * 1024 }
+  // C-2 FIX: Limit individual file size to 200 MB to prevent disk-fill attacks
+  limits: { fileSize: 200 * 1024 * 1024 }
 });
 
 // Multer for bulk upload (up to 50 PDFs at once)
@@ -38,8 +38,8 @@ const bulkUpload = multer({
     }
     cb(null, true);
   },
-  // C-2 FIX: 50 MB per file, max 50 files
-  limits: { fileSize: 50 * 1024 * 1024, files: 50 }
+  // C-2 FIX: 200 MB per file, max 50 files
+  limits: { fileSize: 200 * 1024 * 1024, files: 50 }
 });
 
 // Get all branches (useful for filters/selectors)
@@ -118,6 +118,56 @@ router.get('/', authenticateToken, async (req, res) => {
     return res.json(mappedBooks);
   } catch (error) {
     console.error('Error fetching books:', error);
+    return res.status(500).json({ error: 'Server error' });
+  }
+});
+
+// Get details of a single book by ID
+router.get('/:id', authenticateToken, async (req, res) => {
+  const bookId = req.params.id;
+  const userId = req.user.id;
+  const userRole = req.user.role;
+  const userBranch = req.user.branch_name;
+
+  try {
+    const book = await dbQuery.get(`
+      SELECT b.id, b.title, b.author, b.category_id, b.branch_id, b.priority, b.pdf_url, b.created_at,
+             br.name AS branch_name, c.name AS category_name, c.parent_category_id
+      FROM books b
+      JOIN branches br ON b.branch_id = br.id
+      JOIN categories c ON b.category_id = c.id
+      WHERE b.id = ?
+    `, [bookId]);
+
+    if (!book) {
+      return res.status(404).json({ error: 'Book not found' });
+    }
+
+    if (userRole === 'admin') {
+      return res.json({ ...book, hasAccess: true });
+    }
+
+    // Students: check access permissions
+    const normalizedBookBranch = (book.branch_name || '').trim().toLowerCase();
+    const normalizedUserBranch = (userBranch || '').trim().toLowerCase();
+    const isHomeBranch = normalizedBookBranch === normalizedUserBranch;
+
+    if (isHomeBranch) {
+      return res.json({ ...book, hasAccess: true });
+    }
+
+    // Check approved cross-branch permissions
+    const approvedPermission = await dbQuery.get(
+      'SELECT id FROM permissions WHERE user_id = ? AND branch_id = ? AND status = "approved"',
+      [userId, book.branch_id]
+    );
+
+    return res.json({
+      ...book,
+      hasAccess: !!approvedPermission
+    });
+  } catch (error) {
+    console.error('Error fetching book details:', error);
     return res.status(500).json({ error: 'Server error' });
   }
 });

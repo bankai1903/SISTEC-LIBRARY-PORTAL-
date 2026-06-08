@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import { useState, useEffect } from 'react';
 import { useAuth } from '../context/AuthContext';
 import { BookOpen, UserPlus, ArrowLeft } from 'lucide-react';
 
@@ -105,7 +105,7 @@ const Register = ({ onToggleView }) => {
       <div className="glass-panel animate-fade-in" style={{
         width: '100%',
         maxWidth: '560px',
-        padding: '40px',
+        padding: 'var(--card-padding, 40px)',
         position: 'relative'
       }}>
         {/* Header */}
@@ -159,7 +159,7 @@ const Register = ({ onToggleView }) => {
 
         <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
           
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px' }}>
+          <div style={{ display: 'grid', gridTemplateColumns: 'var(--grid-cols-2, 1fr 1fr)', gap: '16px' }}>
             <div>
               <label style={{ display: 'block', marginBottom: '6px', fontSize: '0.8rem', fontWeight: 600, color: 'var(--text-secondary)' }}>
                 Username
@@ -205,7 +205,7 @@ const Register = ({ onToggleView }) => {
             />
           </div>
 
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px' }}>
+          <div style={{ display: 'grid', gridTemplateColumns: 'var(--grid-cols-2, 1fr 1fr)', gap: '16px' }}>
             <div>
               <label style={{ display: 'block', marginBottom: '6px', fontSize: '0.8rem', fontWeight: 600, color: 'var(--text-secondary)' }}>
                 Roll Number
@@ -257,7 +257,7 @@ const Register = ({ onToggleView }) => {
             </select>
           </div>
 
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px' }}>
+          <div style={{ display: 'grid', gridTemplateColumns: 'var(--grid-cols-2, 1fr 1fr)', gap: '16px' }}>
             <div>
               <label style={{ display: 'block', marginBottom: '6px', fontSize: '0.8rem', fontWeight: 600, color: 'var(--text-secondary)' }}>
                 Year

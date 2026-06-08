@@ -1,9 +1,9 @@
-import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
+import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { useAuth } from '../context/AuthContext';
 import { 
   Users, BookOpen, Key, History, BarChart3, Plus, Edit, Trash2, Check, X, 
-  Search, ShieldAlert, Award, FileText, Download, TrendingUp, AlertCircle,
-  Upload, Layers, CheckCircle2, SkipForward, XCircle, UserCheck, UserX
+  Search, ShieldAlert, Award, FileText, Download, TrendingUp,
+  Upload, Layers, CheckCircle2, SkipForward, XCircle, UserCheck, UserX, AlertTriangle
 } from 'lucide-react';
 
 const AdminDashboard = () => {
@@ -89,7 +89,13 @@ const AdminDashboard = () => {
     };
   }, [students]);
 
+  const showFeedback = useCallback((text, type = 'success') => {
+    setFeedback({ text, type });
+    setTimeout(() => setFeedback({ text: '', type: '' }), 5000);
+  }, []);
+
   const fetchAllAdminData = useCallback(async () => {
+    await Promise.resolve();
     try {
       setLoading(true);
       const [dash, pUsers, pReqs, bList, brList, catList, allStudents] = await Promise.all([
@@ -128,7 +134,7 @@ const AdminDashboard = () => {
     } finally {
       setLoading(false);
     }
-  }, [apiCall]);
+  }, [apiCall, showFeedback]);
 
   // Delete student account
   const handleDeleteStudent = async () => {
@@ -153,11 +159,15 @@ const AdminDashboard = () => {
 
   useEffect(() => {
     document.title = 'Admin Dashboard - SISTEC Library';
-    fetchAllAdminData();
+    const timer = setTimeout(() => {
+      fetchAllAdminData();
+    }, 0);
+    return () => clearTimeout(timer);
   }, [fetchAllAdminData]);
 
   // M-3 FIX: Fetch paginated audit logs
   const fetchLogs = useCallback(async (page = 1) => {
+    await Promise.resolve();
     try {
       setLogsLoading(true);
       const data = await apiCall(`/analytics/logs?page=${page}&limit=50`);
@@ -169,18 +179,16 @@ const AdminDashboard = () => {
     } finally {
       setLogsLoading(false);
     }
-  }, [apiCall]);
+  }, [apiCall, showFeedback]);
 
   useEffect(() => {
     if (activeTab === 'logs') {
-      fetchLogs(logsPage);
+      const timer = setTimeout(() => {
+        fetchLogs(logsPage);
+      }, 0);
+      return () => clearTimeout(timer);
     }
   }, [activeTab, logsPage, fetchLogs]);
-
-  const showFeedback = (text, type = 'success') => {
-    setFeedback({ text, type });
-    setTimeout(() => setFeedback({ text: '', type: '' }), 5000);
-  };
 
   // User Approval Action
   const handleUserApproval = async (userId, status) => {

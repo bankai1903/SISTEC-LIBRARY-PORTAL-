@@ -1,6 +1,6 @@
-import React, { useState, useEffect } from 'react';
-import { useAuth } from '../context/AuthContext';
-import { BookOpen, LogIn, Shield, User } from 'lucide-react';
+import { useState, useEffect } from 'react';
+import { useAuth, BASE_URL } from '../context/AuthContext';
+import { BookOpen, LogIn, Shield, User, Settings } from 'lucide-react';
 
 const Login = ({ onToggleView }) => {
   const { login } = useAuth();
@@ -8,6 +8,15 @@ const Login = ({ onToggleView }) => {
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
+  const [showServerConfig, setShowServerConfig] = useState(false);
+  const [serverIp, setServerIp] = useState(localStorage.getItem('lib_server_url') || BASE_URL);
+
+  const saveServerIp = () => {
+    if (serverIp.trim()) {
+      localStorage.setItem('lib_server_url', serverIp.trim());
+      window.location.reload();
+    }
+  };
 
   useEffect(() => {
     document.title = 'Login - SISTEC Library';
@@ -47,10 +56,80 @@ const Login = ({ onToggleView }) => {
       <div className="glass-panel animate-fade-in" style={{
         width: '100%',
         maxWidth: '420px',
-        padding: '40px',
+        padding: 'var(--card-padding, 40px)',
         position: 'relative'
       }}>
+        {/* Server Config Gear Button */}
+        <button
+          onClick={() => setShowServerConfig(!showServerConfig)}
+          className="btn btn-secondary"
+          style={{
+            position: 'absolute',
+            top: '20px',
+            right: '20px',
+            padding: '6px',
+            borderRadius: '50%',
+            width: '32px',
+            height: '32px',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            zIndex: 10
+          }}
+          type="button"
+          title="Server Settings"
+        >
+          <Settings size={16} />
+        </button>
+
         {/* Header */}
+        <div style={{ textAlign: 'center', marginBottom: '32px' }}>
+        </div>
+
+        {/* Server Config Drawer */}
+        {showServerConfig && (
+          <div style={{
+            background: 'rgba(255, 255, 255, 0.05)',
+            border: '1px solid var(--border-glass)',
+            padding: '16px',
+            borderRadius: '8px',
+            marginBottom: '20px'
+          }}>
+            <h4 style={{ marginBottom: '12px', fontSize: '0.9rem', color: 'var(--primary)' }}>Server Connection Settings</h4>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+              <input
+                type="text"
+                className="glass-input"
+                placeholder="e.g. http://192.168.1.3:5000"
+                value={serverIp}
+                onChange={(e) => setServerIp(e.target.value)}
+                style={{ fontSize: '0.85rem', padding: '8px 12px' }}
+              />
+              <div style={{ display: 'flex', gap: '8px', marginTop: '4px' }}>
+                <button
+                  onClick={saveServerIp}
+                  className="btn btn-primary"
+                  style={{ flex: 1, padding: '8px', fontSize: '0.8rem' }}
+                  type="button"
+                >
+                  Save & Reload
+                </button>
+                <button
+                  onClick={() => {
+                    localStorage.removeItem('lib_server_url');
+                    window.location.reload();
+                  }}
+                  className="btn btn-secondary"
+                  style={{ flex: 1, padding: '8px', fontSize: '0.8rem' }}
+                  type="button"
+                >
+                  Reset Default
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
         <div style={{ textAlign: 'center', marginBottom: '32px' }}>
           <div style={{
             display: 'inline-flex',

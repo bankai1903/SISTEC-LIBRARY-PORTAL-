@@ -282,41 +282,194 @@ p {
 }
 
 /* Responsiveness for Mobile Viewports */
-@media (max-width: 900px) {
-  .app-container {
-    flex-direction: column;
-  }
-  .sidebar {
-    width: 100%;
-    height: auto;
-    position: relative;
-    border-right: none;
-    border-bottom: 1px solid var(--border-glass);
-    padding: 16px;
-    flex-direction: row;
-    align-items: center;
-  }
-  .main-content {
-    margin-left: 0;
-    padding: 24px;
-  }
-  .sidebar-nav {
-    display: flex;
-    gap: 12px;
-  }
+.mobile-header {
+  display: none;
 }
 
-@media (max-width: 600px) {
+.mobile-bottom-nav {
+  display: none;
+}
+
+.mobile-drawer-overlay {
+  display: none;
+}
+
+@media (max-width: 768px) {
+  :root {
+    --grid-cols-2: 1fr;
+    --card-padding: 24px 16px;
+    --filter-width: 100%;
+    --card-inner-padding: 16px;
+  }
+
   .sidebar {
-    flex-direction: column;
-    gap: 12px;
+    display: none !important;
   }
-  .sidebar-nav {
-    flex-wrap: wrap;
-    justify-content: center;
-  }
+
   .main-content {
+    margin-left: 0 !important;
+    padding: 84px 16px 88px 16px !important;
+  }
+
+  .mobile-header {
+    display: flex;
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    height: 60px;
+    align-items: center;
+    justify-content: space-between;
+    background: var(--sidebar-bg);
+    backdrop-filter: blur(20px);
+    -webkit-backdrop-filter: blur(20px);
+    border-bottom: 1px solid var(--border-glass);
+    padding: 0 16px;
+    z-index: 1000;
+  }
+
+  .mobile-bottom-nav {
+    display: flex;
+    position: fixed;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    height: 64px;
+    background: var(--sidebar-bg);
+    backdrop-filter: blur(20px);
+    -webkit-backdrop-filter: blur(20px);
+    border-top: 1px solid var(--border-glass);
+    justify-content: space-around;
+    align-items: center;
+    z-index: 1000;
+    padding: 4px 0;
+    box-shadow: 0 -4px 20px rgba(0, 0, 0, 0.2);
+  }
+
+  .mobile-nav-item {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    background: none;
+    border: none;
+    color: var(--text-secondary);
+    gap: 4px;
+    font-size: 0.75rem;
+    font-weight: 500;
+    cursor: pointer;
+    flex: 1;
+    height: 100%;
+    transition: color 0.2s ease, transform 0.2s ease;
+  }
+
+  .mobile-nav-item span {
+    font-size: 0.7rem;
+  }
+
+  .mobile-nav-item.active {
+    color: var(--secondary);
+  }
+
+  .mobile-nav-item:active {
+    transform: scale(0.95);
+  }
+
+  /* Drawer / Bottom Sheet Styles */
+  .mobile-drawer-overlay {
+    display: block;
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background: rgba(0, 0, 0, 0.6);
+    backdrop-filter: blur(4px);
+    -webkit-backdrop-filter: blur(4px);
+    z-index: 2000;
+    animation: fadeInOverlay 0.2s ease-out forwards;
+  }
+
+  .mobile-drawer {
+    position: fixed;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    background: var(--bg-card);
+    backdrop-filter: blur(25px);
+    -webkit-backdrop-filter: blur(25px);
+    border-top: 1px solid var(--border-glass);
+    border-left: none;
+    border-right: none;
+    border-bottom: none;
+    border-radius: 24px 24px 0 0;
+    padding: 24px;
+    box-shadow: 0 -10px 40px rgba(0, 0, 0, 0.5);
+    z-index: 2001;
+    transform: translateY(100%);
+    animation: slideUpDrawer 0.3s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+  }
+
+  .mobile-drawer-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 20px;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+    padding-bottom: 12px;
+  }
+
+  .mobile-drawer-content {
+    display: flex;
+    flex-direction: column;
+  }
+
+  .student-profile-info {
+    background: rgba(255, 255, 255, 0.02);
+    border: 1px solid rgba(255, 255, 255, 0.05);
+    border-radius: 12px;
     padding: 16px;
+  }
+
+  /* Floating Action Buttons positioning */
+  .theme-fab-container {
+    bottom: 80px !important;
+    right: 16px !important;
+  }
+
+  .theme-studio-panel {
+    bottom: 152px !important;
+    right: 16px !important;
+    width: calc(100% - 32px) !important;
+    max-width: 340px !important;
+  }
+
+  /* Book Reader Overrides */
+  .reader-header {
+    flex-direction: column !important;
+    gap: 12px !important;
+    padding: 12px 16px !important;
+    text-align: center !important;
+  }
+
+  .reader-footer {
+    flex-direction: column !important;
+    gap: 16px !important;
+    padding: 16px !important;
+  }
+
+  .reader-body {
+    padding: 24px !important;
+  }
+
+  @keyframes fadeInOverlay {
+    from { opacity: 0; }
+    to { opacity: 1; }
+  }
+
+  @keyframes slideUpDrawer {
+    from { transform: translateY(100%); }
+    to { transform: translateY(0); }
   }
 }
 

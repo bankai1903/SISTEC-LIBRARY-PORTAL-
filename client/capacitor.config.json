@@ -1,0 +1,12 @@
+{
+  "appId": "com.sistec.libraryportal",
+  "appName": "SISTEC Library Portal",
+  "webDir": "dist",
+  "android": {
+    "allowMixedContent": true
+  },
+  "server": {
+    "androidScheme": "http",
+    "cleartext": true
+  }
+}

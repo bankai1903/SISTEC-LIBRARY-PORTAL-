@@ -7,8 +7,19 @@ const app = express();
 const PORT = process.env.PORT || 5000;
 
 // Middleware
+const allowedOrigins = [
+  'http://localhost:5173',
+  'http://localhost',
+  'capacitor://localhost'
+];
 app.use(cors({
-  origin: 'http://localhost:5173',
+  origin: (origin, callback) => {
+    if (!origin || allowedOrigins.includes(origin)) {
+      callback(null, true);
+    } else {
+      callback(new Error('Not allowed by CORS'));
+    }
+  },
   credentials: true
 }));
 app.use(express.json());
@@ -49,7 +60,7 @@ if (process.env.NODE_ENV === 'production') {
 // L-7 FIX: Multer error handler middleware (must have 4 arguments: err, req, res, next)
 app.use((err, req, res, next) => {
   if (err.code === 'LIMIT_FILE_SIZE') {
-    return res.status(400).json({ error: 'File is too large! Maximum limit is 50MB.' });
+    return res.status(400).json({ error: 'File is too large! Maximum limit is 200MB.' });
   }
   if (err.code === 'LIMIT_FILE_COUNT') {
     return res.status(400).json({ error: 'Too many files! Maximum limit is 50 files.' });

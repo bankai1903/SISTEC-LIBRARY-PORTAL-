@@ -1,8 +1,8 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect, useMemo, useCallback } from 'react';
 import { useAuth, BASE_URL } from '../context/AuthContext';
 import { 
   Book, BookOpen, Download, Lock, Unlock, Search, LogOut, CheckCircle, 
-  Clock, ShieldAlert, BookMarked, User, GraduationCap
+  Clock, ShieldAlert, BookMarked, User, GraduationCap, X
 } from 'lucide-react';
 
 const Dashboard = ({ onSelectBook }) => {
@@ -26,8 +26,15 @@ const Dashboard = ({ onSelectBook }) => {
   const [loading, setLoading] = useState(true);
   const [actionLoading, setActionLoading] = useState({});
   const [feedbackMsg, setFeedbackMsg] = useState({ text: '', type: '' });
+  const [showProfileDrawer, setShowProfileDrawer] = useState(false);
 
-  const fetchData = async () => {
+  const showFeedback = useCallback((text, type = 'success') => {
+    setFeedbackMsg({ text, type });
+    setTimeout(() => setFeedbackMsg({ text: '', type: '' }), 5000);
+  }, []);
+
+  const fetchData = useCallback(async () => {
+    await Promise.resolve();
     try {
       setLoading(true);
       const [booksData, catsData, branchesData, reqsData, histData] = await Promise.all([
@@ -48,16 +55,14 @@ const Dashboard = ({ onSelectBook }) => {
     } finally {
       setLoading(false);
     }
-  };
+  }, [apiCall, showFeedback]);
 
   useEffect(() => {
-    fetchData();
-  }, []);
-
-  const showFeedback = (text, type = 'success') => {
-    setFeedbackMsg({ text, type });
-    setTimeout(() => setFeedbackMsg({ text: '', type: '' }), 5000);
-  };
+    const timer = setTimeout(() => {
+      fetchData();
+    }, 0);
+    return () => clearTimeout(timer);
+  }, [fetchData]);
 
   const handleRequestAccess = async (branchId, branchName) => {
     try {
@@ -160,6 +165,23 @@ const Dashboard = ({ onSelectBook }) => {
 
   return (
     <div className="app-container">
+      {/* Mobile Top Header */}
+      <header className="mobile-header">
+        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+          <BookOpen size={20} color="var(--secondary)" />
+          <span style={{ fontSize: '1rem', fontWeight: 700, color: 'var(--text-primary)' }}>
+            SISTEC Library
+          </span>
+        </div>
+        <button 
+          onClick={() => setShowProfileDrawer(true)}
+          className="btn btn-secondary mobile-profile-btn"
+          style={{ padding: '6px', borderRadius: '50%', width: '32px', height: '32px', minWidth: '32px', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+        >
+          <User size={16} />
+        </button>
+      </header>
+
       {/* Sidebar */}
       <aside className="sidebar">
         <div>
@@ -284,7 +306,7 @@ const Dashboard = ({ onSelectBook }) => {
                 />
               </div>
 
-              <div style={{ width: '200px' }}>
+              <div style={{ width: 'var(--filter-width, 200px)' }}>
                 <select
                   className="glass-input glass-select"
                   value={selectedCategory}
@@ -300,7 +322,7 @@ const Dashboard = ({ onSelectBook }) => {
               </div>
 
               {activeTab === 'all' && (
-                <div style={{ width: '200px' }}>
+                <div style={{ width: 'var(--filter-width, 200px)' }}>
                   <select
                     className="glass-input glass-select"
                     value={selectedBranch}
@@ -336,7 +358,7 @@ const Dashboard = ({ onSelectBook }) => {
               }}>
                 {filteredBooks.map(book => (
                   <div key={book.id} className="glass-panel glass-card-interactive" style={{
-                    padding: '24px',
+                    padding: 'var(--card-inner-padding, 24px)',
                     display: 'flex',
                     flexDirection: 'column',
                     justifyContent: 'space-between',
@@ -504,6 +526,103 @@ const Dashboard = ({ onSelectBook }) => {
           </div>
         )}
       </main>
+
+      {/* Mobile Bottom Navigation */}
+      <nav className="mobile-bottom-nav">
+        <button 
+          onClick={() => { setActiveTab('all'); setSelectedBranch(''); }}
+          className={`mobile-nav-item ${activeTab === 'all' ? 'active' : ''}`}
+        >
+          <Book size={18} />
+          <span>Catalog</span>
+        </button>
+        <button 
+          onClick={() => { setActiveTab('home'); setSelectedBranch(''); }}
+          className={`mobile-nav-item ${activeTab === 'home' ? 'active' : ''}`}
+        >
+          <CheckCircle size={18} />
+          <span>Home</span>
+        </button>
+        <button 
+          onClick={() => { setActiveTab('other'); setSelectedBranch(''); }}
+          className={`mobile-nav-item ${activeTab === 'other' ? 'active' : ''}`}
+        >
+          <Lock size={18} />
+          <span>Extra</span>
+        </button>
+        <button 
+          onClick={() => setActiveTab('history')}
+          className={`mobile-nav-item ${activeTab === 'history' ? 'active' : ''}`}
+        >
+          <Clock size={18} />
+          <span>History</span>
+        </button>
+      </nav>
+
+      {/* Mobile Profile Drawer Overlay */}
+      {showProfileDrawer && (
+        <div className="mobile-drawer-overlay" onClick={() => setShowProfileDrawer(false)}>
+          <div className="mobile-drawer" onClick={(e) => e.stopPropagation()}>
+            <div className="mobile-drawer-header">
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <User size={18} color="var(--primary)" />
+                <h4 style={{ margin: 0, color: 'var(--text-primary)' }}>Student Profile</h4>
+              </div>
+              <button 
+                onClick={() => setShowProfileDrawer(false)}
+                className="btn btn-secondary mobile-drawer-close"
+                style={{ padding: '4px', borderRadius: '50%', width: '28px', height: '28px', minWidth: '28px', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+              >
+                <X size={14} />
+              </button>
+            </div>
+            
+            <div className="mobile-drawer-content">
+              <div className="student-profile-info">
+                <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '14px' }}>
+                  <div style={{ width: '40px', height: '40px', borderRadius: '50%', background: 'var(--primary-glow)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                    <User size={20} color="var(--primary)" />
+                  </div>
+                  <div>
+                    <h4 style={{ margin: 0, fontSize: '1rem', color: 'var(--text-primary)' }}>{user.fullName || 'Student'}</h4>
+                    <p style={{ margin: 0, fontSize: '0.8rem', color: 'var(--text-secondary)' }}>{user.rollNumber || 'No Roll Number'}</p>
+                  </div>
+                </div>
+                
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', fontSize: '0.85rem' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', borderBottom: '1px solid rgba(255,255,255,0.05)', paddingBottom: '6px' }}>
+                    <span style={{ color: 'var(--text-secondary)' }}>Branch</span>
+                    <strong style={{ color: 'var(--text-primary)' }}>{user.branchName || 'Not Set'}</strong>
+                  </div>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', borderBottom: '1px solid rgba(255,255,255,0.05)', paddingBottom: '6px' }}>
+                    <span style={{ color: 'var(--text-secondary)' }}>Year</span>
+                    <strong style={{ color: 'var(--text-primary)' }}>{user.year || 'Not Set'}</strong>
+                  </div>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', borderBottom: '1px solid rgba(255,255,255,0.05)', paddingBottom: '6px' }}>
+                    <span style={{ color: 'var(--text-secondary)' }}>Semester</span>
+                    <strong style={{ color: 'var(--text-primary)' }}>{user.semester || 'Not Set'}</strong>
+                  </div>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', paddingBottom: '6px' }}>
+                    <span style={{ color: 'var(--text-secondary)' }}>BT ID</span>
+                    <strong style={{ color: 'var(--text-primary)' }}>{user.btNumber || 'Not Set'}</strong>
+                  </div>
+                </div>
+              </div>
+              
+              <button 
+                onClick={() => {
+                  setShowProfileDrawer(false);
+                  logout();
+                }}
+                className="btn btn-secondary logout-btn-mobile"
+                style={{ width: '100%', borderColor: 'rgba(239, 68, 68, 0.2)', color: '#ef4444', marginTop: '20px', display: 'flex', justifyContent: 'center' }}
+              >
+                <LogOut size={16} /> Log Out
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

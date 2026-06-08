@@ -1,6 +1,6 @@
-import React, { useState, useEffect } from 'react';
+import { useState, useEffect } from 'react';
 import { useAuth, BASE_URL } from '../context/AuthContext';
-import { ArrowLeft, BookOpen, ChevronLeft, ChevronRight, Bookmark, Download } from 'lucide-react';
+import { ArrowLeft, ChevronLeft, ChevronRight, Bookmark, Download } from 'lucide-react';
 
 const BookReader = ({ book, onClose }) => {
   const { apiCall } = useAuth();
@@ -54,7 +54,7 @@ const BookReader = ({ book, onClose }) => {
     };
 
     initReader();
-  }, [book.id]);
+  }, [book.id, book.title, apiCall]);
 
   // Update backend about progress
   const saveProgress = async (page) => {
@@ -122,7 +122,7 @@ const BookReader = ({ book, onClose }) => {
         gap: '20px'
       }}>
         {/* Top Controls Header */}
-        <div className="glass-panel" style={{
+        <div className="glass-panel reader-header" style={{
           padding: '16px 24px',
           display: 'flex',
           alignItems: 'center',
@@ -217,7 +217,7 @@ const BookReader = ({ book, onClose }) => {
       justifyContent: 'space-between'
     }}>
       {/* Top Controls Header */}
-      <div className="glass-panel" style={{
+      <div className="glass-panel reader-header" style={{
         padding: '16px 24px',
         display: 'flex',
         alignItems: 'center',
@@ -244,7 +244,7 @@ const BookReader = ({ book, onClose }) => {
       </div>
 
       {/* Reader Page body */}
-      <div className="glass-panel" style={{
+      <div className="glass-panel reader-body" style={{
         padding: '48px',
         flex: 1,
         marginBottom: '24px',
@@ -267,7 +267,7 @@ const BookReader = ({ book, onClose }) => {
       </div>
 
       {/* Navigation Footer */}
-      <div className="glass-panel" style={{
+      <div className="glass-panel reader-footer" style={{
         padding: '16px 24px',
         display: 'flex',
         alignItems: 'center',
