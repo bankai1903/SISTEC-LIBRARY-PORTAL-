@@ -14,7 +14,19 @@ const allowedOrigins = [
 ];
 app.use(cors({
   origin: (origin, callback) => {
-    if (!origin || allowedOrigins.includes(origin)) {
+    const envOrigins = process.env.ALLOWED_ORIGINS 
+      ? process.env.ALLOWED_ORIGINS.split(',').map(o => o.trim()) 
+      : [];
+    const allAllowed = [...allowedOrigins, ...envOrigins];
+
+    const isDeployDomain = origin && (
+      origin.endsWith('.vercel.app') || 
+      origin.endsWith('.netlify.app') || 
+      origin.endsWith('.onrender.com') ||
+      origin.endsWith('.gitpod.io')
+    );
+
+    if (!origin || allAllowed.includes(origin) || isDeployDomain) {
       callback(null, true);
     } else {
       callback(new Error('Not allowed by CORS'));
