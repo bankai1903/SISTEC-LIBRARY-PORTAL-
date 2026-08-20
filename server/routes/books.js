@@ -289,6 +289,57 @@ router.delete('/:id', authenticateToken, requireAdmin, async (req, res) => {
   }
 });
 
+// Admin Route: Bulk Delete Books
+router.post('/bulk-delete', authenticateToken, requireAdmin, async (req, res) => {
+  const { bookIds } = req.body;
+
+  if (!bookIds || !Array.isArray(bookIds) || bookIds.length === 0) {
+    return res.status(400).json({ error: 'No book IDs provided' });
+  }
+
+  try {
+    const placeholders = bookIds.map(() => '?').join(',');
+    const books = await dbQuery.all(`SELECT id, title, pdf_url FROM books WHERE id IN (${placeholders})`, bookIds);
+
+    if (books.length === 0) {
+      return res.status(404).json({ error: 'No matching books found' });
+    }
+
+    const foundBookIds = books.map(b => b.id);
+    const foundPlaceholders = foundBookIds.map(() => '?').join(',');
+
+    // Delete database records (cascades automatically)
+    await dbQuery.run(`DELETE FROM books WHERE id IN (${foundPlaceholders})`, foundBookIds);
+
+    // Delete PDF files from disk
+    books.forEach(book => {
+      if (book.pdf_url && book.pdf_url.startsWith('/uploads/')) {
+        const filePath = path.join(__dirname, '..', book.pdf_url);
+        fs.unlink(filePath, (err) => {
+          if (err && err.code !== 'ENOENT') {
+            console.warn('Could not delete PDF file on book deletion:', filePath, err.message);
+          }
+        });
+      }
+    });
+
+    // Compile titles list for logging
+    const deletedTitles = books.map(b => `"${b.title}" (ID: ${b.id})`).join(', ');
+
+    // Log the admin action
+    await dbQuery.run(`
+      INSERT INTO activity_logs (user_id, action_type, details)
+      VALUES (?, 'admin_action', ?)
+    `, [req.user.id, `Bulk deleted books: ${deletedTitles}`]);
+
+    return res.json({ message: `Successfully deleted ${foundBookIds.length} books.` });
+  } catch (error) {
+    console.error('Error bulk deleting books:', error);
+    return res.status(500).json({ error: 'Server error' });
+  }
+});
+
+
 // Admin Route: Bulk Upload Books (multiple PDFs, shared metadata)
 router.post('/bulk', authenticateToken, requireAdmin, bulkUpload.array('pdfs', 50), async (req, res) => {
   const { category_id, branch_id, priority, author } = req.body;

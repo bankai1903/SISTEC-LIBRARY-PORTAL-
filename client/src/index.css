@@ -93,7 +93,6 @@ body {
 }
 
 .glass-card-interactive {
-  composes: glass-panel;
   cursor: pointer;
 }
 
@@ -134,7 +133,6 @@ body {
 
 /* Select Fields */
 .glass-select {
-  composes: glass-input;
   appearance: none;
   background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' fill='none' viewBox='0 0 24 24' stroke='%23f3f4f6'%3E%3Cpath stroke-linecap='round' stroke-linejoin='round' stroke-width='2' d='M19 9l-7 7-7-7'/%3E%3C/svg%3E");
   background-repeat: no-repeat;
@@ -309,6 +307,10 @@ p {
   .main-content {
     margin-left: 0 !important;
     padding: 84px 16px 88px 16px !important;
+  }
+
+  .responsive-grid-1col {
+    grid-template-columns: 1fr !important;
   }
 
   .mobile-header {

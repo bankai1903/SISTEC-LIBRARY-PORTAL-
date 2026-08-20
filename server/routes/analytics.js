@@ -137,12 +137,12 @@ router.get('/my-history', authenticateToken, async (req, res) => {
 router.get('/dashboard', authenticateToken, requireAdmin, async (req, res) => {
   try {
     // 1. General counts
-    const totalLogins = await dbQuery.get('SELECT COUNT(*) as count FROM activity_logs WHERE action_type = "login"');
-    const totalLogouts = await dbQuery.get('SELECT COUNT(*) as count FROM activity_logs WHERE action_type = "logout"');
+    const totalLogins = await dbQuery.get("SELECT COUNT(*) as count FROM activity_logs WHERE action_type = 'login'");
+    const totalLogouts = await dbQuery.get("SELECT COUNT(*) as count FROM activity_logs WHERE action_type = 'logout'");
     const totalDownloads = await dbQuery.get('SELECT SUM(downloaded_count) as count FROM user_book_progress');
     const totalViews = await dbQuery.get('SELECT SUM(accessed_count) as count FROM user_book_progress');
     const totalBooks = await dbQuery.get('SELECT COUNT(*) as count FROM books');
-    const totalStudents = await dbQuery.get('SELECT COUNT(*) as count FROM users WHERE role = "student"');
+    const totalStudents = await dbQuery.get("SELECT COUNT(*) as count FROM users WHERE role = 'student'");
 
     // 2. Most read book in each branch (highest total accessed_count)
     const mostReadPerBranch = await dbQuery.all(`
@@ -153,7 +153,7 @@ router.get('/dashboard', authenticateToken, requireAdmin, async (req, res) => {
         FROM books b
         JOIN branches br ON b.branch_id = br.id
         JOIN user_book_progress ubp ON b.id = ubp.book_id
-        GROUP BY b.id
+        GROUP BY b.id, b.title, b.author, b.branch_id, br.name
       )
       SELECT book_id, title, author, branch_id, branch_name, total_accesses
       FROM RankedBooks
@@ -168,7 +168,7 @@ router.get('/dashboard', authenticateToken, requireAdmin, async (req, res) => {
       FROM books b
       JOIN branches br ON b.branch_id = br.id
       LEFT JOIN user_book_progress ubp ON b.id = ubp.book_id
-      GROUP BY b.id
+      GROUP BY b.id, b.title, b.author, br.name
       ORDER BY total_accesses DESC, total_downloads DESC
       LIMIT 1
     `);
@@ -181,7 +181,7 @@ router.get('/dashboard', authenticateToken, requireAdmin, async (req, res) => {
       FROM users u
       JOIN user_book_progress ubp ON u.id = ubp.user_id
       WHERE u.role = 'student'
-      GROUP BY u.id
+      GROUP BY u.id, u.full_name, u.roll_number, u.branch_name
       ORDER BY total_accesses DESC
       LIMIT 1
     `);
@@ -206,7 +206,7 @@ router.get('/dashboard', authenticateToken, requireAdmin, async (req, res) => {
       FROM branches br
       LEFT JOIN books b ON br.id = b.branch_id
       LEFT JOIN user_book_progress ubp ON b.id = ubp.book_id
-      GROUP BY br.id
+      GROUP BY br.id, br.name
       ORDER BY br.name ASC
     `);
 

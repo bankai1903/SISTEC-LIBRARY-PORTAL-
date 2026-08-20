@@ -76,6 +76,11 @@ router.post('/login', async (req, res) => {
       return res.status(400).json({ error: 'Invalid username or password' });
     }
 
+    // Check if blocked
+    if (user.is_blocked === 1) {
+      return res.status(403).json({ error: 'Your account has been blocked by the admin' });
+    }
+
     // Check status if student
     if (user.role === 'student' && user.status === 'pending') {
       return res.status(403).json({ error: 'Your account is pending admin approval' });
@@ -197,7 +202,7 @@ router.post('/approve-user/:id', authenticateToken, requireAdmin, async (req, re
 router.get('/users', authenticateToken, requireAdmin, async (req, res) => {
   try {
     const users = await dbQuery.all(`
-      SELECT id, username, full_name, roll_number, branch_name, year, semester, bt_number, role, status, created_at
+      SELECT id, username, full_name, roll_number, branch_name, year, semester, bt_number, role, status, is_blocked, created_at
       FROM users
       ORDER BY role ASC, status DESC, created_at DESC
     `);
@@ -244,5 +249,117 @@ router.delete('/users/:id', authenticateToken, requireAdmin, async (req, res) =>
   }
 });
 
+// Block user (Admin only)
+router.post('/users/:id/block', authenticateToken, requireAdmin, async (req, res) => {
+  const userId = req.params.id;
+
+  try {
+    // Prevent admin from blocking themselves
+    if (parseInt(userId) === req.user.id) {
+      return res.status(400).json({ error: 'You cannot block your own admin account' });
+    }
+
+    const user = await dbQuery.get('SELECT id, full_name FROM users WHERE id = ?', [userId]);
+    if (!user) {
+      return res.status(404).json({ error: 'User not found' });
+    }
+
+    await dbQuery.run('UPDATE users SET is_blocked = 1 WHERE id = ?', [userId]);
+
+    // Log the admin action
+    await dbQuery.run(`
+      INSERT INTO activity_logs (user_id, action_type, details)
+      VALUES (?, 'admin_action', ?)
+    `, [req.user.id, `Blocked user: ${user.full_name} (ID: ${userId})`]);
+
+    return res.json({ message: `User "${user.full_name}" has been blocked.` });
+  } catch (error) {
+    console.error('Error blocking user:', error);
+    return res.status(500).json({ error: 'Server error while blocking user' });
+  }
+});
+
+// Unblock user (Admin only)
+router.post('/users/:id/unblock', authenticateToken, requireAdmin, async (req, res) => {
+  const userId = req.params.id;
+
+  try {
+    const user = await dbQuery.get('SELECT id, full_name FROM users WHERE id = ?', [userId]);
+    if (!user) {
+      return res.status(404).json({ error: 'User not found' });
+    }
+
+    await dbQuery.run('UPDATE users SET is_blocked = 0 WHERE id = ?', [userId]);
+
+    // Log the admin action
+    await dbQuery.run(`
+      INSERT INTO activity_logs (user_id, action_type, details)
+      VALUES (?, 'admin_action', ?)
+    `, [req.user.id, `Unblocked user: ${user.full_name} (ID: ${userId})`]);
+
+    return res.json({ message: `User "${user.full_name}" has been unblocked.` });
+  } catch (error) {
+    console.error('Error unblocking user:', error);
+    return res.status(500).json({ error: 'Server error while unblocking user' });
+  }
+});
+
+// Bulk delete student accounts (Admin only)
+router.post('/users/bulk-delete', authenticateToken, requireAdmin, async (req, res) => {
+  const { userIds } = req.body;
+
+  if (!userIds || !Array.isArray(userIds) || userIds.length === 0) {
+    return res.status(400).json({ error: 'No user IDs provided' });
+  }
+
+  try {
+    // Filter out requester's own ID and map to numbers
+    const validIds = userIds.map(id => parseInt(id)).filter(id => id !== req.user.id);
+
+    if (validIds.length === 0) {
+      return res.status(400).json({ error: 'No valid user IDs to delete' });
+    }
+
+    // Fetch user details to filter by role and compile logs
+    const placeholders = validIds.map(() => '?').join(',');
+    const usersToDelete = await dbQuery.all(
+      `SELECT id, full_name, role FROM users WHERE id IN (${placeholders})`,
+      validIds
+    );
+
+    // Filter to students only (Admins cannot be deleted via bulk endpoint)
+    const studentIds = usersToDelete
+      .filter(u => u.role === 'student')
+      .map(u => u.id);
+
+    if (studentIds.length === 0) {
+      return res.status(400).json({ error: 'Only student accounts can be deleted' });
+    }
+
+    const studentPlaceholders = studentIds.map(() => '?').join(',');
+
+    // Delete users (will cascade to related tables automatically via DB FOREIGN KEY constraints)
+    await dbQuery.run(`DELETE FROM users WHERE id IN (${studentPlaceholders})`, studentIds);
+
+    // Compile log detail
+    const deletedNames = usersToDelete
+      .filter(u => u.role === 'student')
+      .map(u => `${u.full_name} (ID: ${u.id})`)
+      .join(', ');
+
+    // Log the admin action
+    await dbQuery.run(`
+      INSERT INTO activity_logs (user_id, action_type, details)
+      VALUES (?, 'admin_action', ?)
+    `, [req.user.id, `Bulk deleted student accounts: ${deletedNames}`]);
+
+    return res.json({ message: `Successfully deleted ${studentIds.length} student accounts.` });
+  } catch (error) {
+    console.error('Error bulk deleting users:', error);
+    return res.status(500).json({ error: 'Server error while performing bulk deletion' });
+  }
+});
+
 module.exports = router;
+
 

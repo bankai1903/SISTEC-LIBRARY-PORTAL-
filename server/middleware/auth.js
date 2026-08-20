@@ -19,11 +19,15 @@ async function authenticateToken(req, res, next) {
   try {
     const decoded = jwt.verify(token, JWT_SECRET);
     
-    // Fetch user details to verify if still approved
-    const user = await dbQuery.get('SELECT id, username, role, status, branch_name FROM users WHERE id = ?', [decoded.id]);
+    // Fetch user details to verify if still approved and not blocked
+    const user = await dbQuery.get('SELECT id, username, role, status, is_blocked, branch_name FROM users WHERE id = ?', [decoded.id]);
     
     if (!user) {
       return res.status(403).json({ error: 'User no longer exists' });
+    }
+
+    if (user.is_blocked === 1) {
+      return res.status(403).json({ error: 'Your account has been blocked by the admin' });
     }
 
     if (user.status !== 'approved') {

@@ -3,7 +3,8 @@ import { useAuth } from '../context/AuthContext';
 import { 
   Users, BookOpen, Key, History, BarChart3, Plus, Edit, Trash2, Check, X, 
   Search, ShieldAlert, Award, FileText, Download, TrendingUp,
-  Upload, Layers, CheckCircle2, SkipForward, XCircle, UserCheck, UserX, AlertTriangle
+  Upload, Layers, CheckCircle2, SkipForward, XCircle, UserCheck, UserX, AlertTriangle,
+  Menu
 } from 'lucide-react';
 
 const AdminDashboard = () => {
@@ -23,6 +24,12 @@ const AdminDashboard = () => {
   const [studentBranchFilter, setStudentBranchFilter] = useState('');
   const [deleteConfirm, setDeleteConfirm] = useState(null); // { id, name } or null
   const [deleteLoading, setDeleteLoading] = useState(false);
+  const [selectedUserIds, setSelectedUserIds] = useState([]);
+  const [showBulkDeleteConfirm, setShowBulkDeleteConfirm] = useState(false);
+  const [bulkDeleteLoading, setBulkDeleteLoading] = useState(false);
+  const [selectedBookIds, setSelectedBookIds] = useState([]);
+  const [showBulkDeleteBooksConfirm, setShowBulkDeleteBooksConfirm] = useState(false);
+  const [bulkDeleteBooksLoading, setBulkDeleteBooksLoading] = useState(false);
 
   // Book CRUD Modal State
   const [showBookModal, setShowBookModal] = useState(false);
@@ -60,6 +67,7 @@ const AdminDashboard = () => {
   const [logsPage, setLogsPage] = useState(1);
   const [logsPagination, setLogsPagination] = useState({ page: 1, limit: 50, total: 0, totalPages: 1 });
   const [logsLoading, setLogsLoading] = useState(false);
+  const [showMenuDrawer, setShowMenuDrawer] = useState(false);
 
   // Memoized selector values to optimize rendering performance
   const uniqueStudentBranches = useMemo(() => {
@@ -79,6 +87,17 @@ const AdminDashboard = () => {
       return matchSearch && matchStatus && matchBranch;
     });
   }, [students, studentSearch, studentStatusFilter, studentBranchFilter]);
+
+  // Filter books by search query in Book Inventory tab
+  const filteredBooks = useMemo(() => {
+    const q = searchQuery.toLowerCase();
+    return books.filter(b => 
+      b.title.toLowerCase().includes(q) ||
+      b.author.toLowerCase().includes(q) ||
+      b.branch_name.toLowerCase().includes(q) ||
+      b.category_name.toLowerCase().includes(q)
+    );
+  }, [books, searchQuery]);
 
   const studentStats = useMemo(() => {
     return {
@@ -165,6 +184,11 @@ const AdminDashboard = () => {
     return () => clearTimeout(timer);
   }, [fetchAllAdminData]);
 
+  useEffect(() => {
+    setSelectedUserIds([]);
+    setSelectedBookIds([]);
+  }, [activeTab]);
+
   // M-3 FIX: Fetch paginated audit logs
   const fetchLogs = useCallback(async (page = 1) => {
     await Promise.resolve();
@@ -205,6 +229,127 @@ const AdminDashboard = () => {
       setDashboardData(dash);
     } catch (err) {
       showFeedback(err.message || 'Action failed', 'error');
+    }
+  };
+
+  // Toggle Block / Unblock Action
+  const handleToggleBlock = async (userId, isBlocked) => {
+    try {
+      const endpoint = `/auth/users/${userId}/${isBlocked ? 'block' : 'unblock'}`;
+      const data = await apiCall(endpoint, {
+        method: 'POST'
+      });
+      showFeedback(data.message || `User successfully ${isBlocked ? 'blocked' : 'unblocked'}`);
+      
+      // Update local state for immediate feedback
+      setStudents(prev => prev.map(u => u.id === userId ? { ...u, is_blocked: isBlocked ? 1 : 0 } : u));
+    } catch (err) {
+      showFeedback(err.message || 'Action failed', 'error');
+    }
+  };
+
+  // Selection Handlers
+  const isAllFilteredSelected = useMemo(() => {
+    if (filteredStudents.length === 0) return false;
+    return filteredStudents.every(s => selectedUserIds.includes(s.id));
+  }, [filteredStudents, selectedUserIds]);
+
+  const handleSelectAll = (e) => {
+    if (e.target.checked) {
+      const filteredIds = filteredStudents.map(s => s.id);
+      setSelectedUserIds(prev => {
+        const union = new Set([...prev, ...filteredIds]);
+        return Array.from(union);
+      });
+    } else {
+      const filteredIdsSet = new Set(filteredStudents.map(s => s.id));
+      setSelectedUserIds(prev => prev.filter(id => !filteredIdsSet.has(id)));
+    }
+  };
+
+  const handleSelectUser = (userId, checked) => {
+    if (checked) {
+      setSelectedUserIds(prev => [...prev, userId]);
+    } else {
+      setSelectedUserIds(prev => prev.filter(id => id !== userId));
+    }
+  };
+
+  // Bulk Delete Action
+  const handleBulkDeleteStudents = async () => {
+    if (selectedUserIds.length === 0) return;
+    setBulkDeleteLoading(true);
+    try {
+      const data = await apiCall('/auth/users/bulk-delete', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ userIds: selectedUserIds })
+      });
+      showFeedback(data.message || `${selectedUserIds.length} students deleted successfully`);
+      
+      // Update local state
+      setStudents(prev => prev.filter(u => !selectedUserIds.includes(u.id)));
+      setSelectedUserIds([]);
+      setShowBulkDeleteConfirm(false);
+      
+      const dash = await apiCall('/analytics/dashboard');
+      setDashboardData(dash);
+    } catch (err) {
+      showFeedback(err.message || 'Failed to delete selected students', 'error');
+    } finally {
+      setBulkDeleteLoading(false);
+    }
+  };
+
+  // Book Selection Handlers
+  const isAllFilteredBooksSelected = useMemo(() => {
+    if (filteredBooks.length === 0) return false;
+    return filteredBooks.every(b => selectedBookIds.includes(b.id));
+  }, [filteredBooks, selectedBookIds]);
+
+  const handleSelectAllBooks = (e) => {
+    if (e.target.checked) {
+      const filteredIds = filteredBooks.map(b => b.id);
+      setSelectedBookIds(prev => {
+        const union = new Set([...prev, ...filteredIds]);
+        return Array.from(union);
+      });
+    } else {
+      const filteredIdsSet = new Set(filteredBooks.map(b => b.id));
+      setSelectedBookIds(prev => prev.filter(id => !filteredIdsSet.has(id)));
+    }
+  };
+
+  const handleSelectBook = (bookId, checked) => {
+    if (checked) {
+      setSelectedBookIds(prev => [...prev, bookId]);
+    } else {
+      setSelectedBookIds(prev => prev.filter(id => id !== bookId));
+    }
+  };
+
+  const handleBulkDeleteBooks = async () => {
+    if (selectedBookIds.length === 0) return;
+    setBulkDeleteBooksLoading(true);
+    try {
+      const data = await apiCall('/books/bulk-delete', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ bookIds: selectedBookIds })
+      });
+      showFeedback(data.message || `${selectedBookIds.length} books deleted successfully`);
+
+      // Update local state
+      setBooks(prev => prev.filter(b => !selectedBookIds.includes(b.id)));
+      setSelectedBookIds([]);
+      setShowBulkDeleteBooksConfirm(false);
+
+      const dash = await apiCall('/analytics/dashboard');
+      setDashboardData(dash);
+    } catch (err) {
+      showFeedback(err.message || 'Failed to delete selected books', 'error');
+    } finally {
+      setBulkDeleteBooksLoading(false);
     }
   };
 
@@ -410,16 +555,7 @@ const AdminDashboard = () => {
     return maxVal > 0 ? Math.ceil(maxVal * 1.2) : 10;
   };
 
-  // Filter books by search query in Book Inventory tab
-  const filteredBooks = useMemo(() => {
-    const q = searchQuery.toLowerCase();
-    return books.filter(b => 
-      b.title.toLowerCase().includes(q) ||
-      b.author.toLowerCase().includes(q) ||
-      b.branch_name.toLowerCase().includes(q) ||
-      b.category_name.toLowerCase().includes(q)
-    );
-  }, [books, searchQuery]);
+
 
   return (
     <div className="app-container">
@@ -867,7 +1003,7 @@ const AdminDashboard = () => {
                 </div>
 
                 {/* Filter and Search */}
-                <div className="glass-panel" style={{ padding: '16px', marginBottom: '24px', display: 'flex', gap: '12px' }}>
+                <div className="glass-panel" style={{ padding: '16px', marginBottom: '24px', display: 'flex', gap: '12px', alignItems: 'center' }}>
                   <div style={{ flex: 1, position: 'relative' }}>
                     <Search size={18} style={{ position: 'absolute', left: '16px', top: '50%', transform: 'translateY(-50%)', color: 'var(--text-muted)' }} />
                     <input
@@ -879,6 +1015,25 @@ const AdminDashboard = () => {
                       style={{ paddingLeft: '48px' }}
                     />
                   </div>
+                  {selectedBookIds.length > 0 && (
+                    <button
+                      onClick={() => setShowBulkDeleteBooksConfirm(true)}
+                      className="btn btn-danger animate-fade-in"
+                      style={{
+                        padding: '8px 16px',
+                        fontSize: '0.85rem',
+                        background: 'var(--danger)',
+                        borderColor: '#ef4444',
+                        color: '#fff',
+                        fontWeight: 600,
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: '6px'
+                      }}
+                    >
+                      <Trash2 size={16} /> Delete Selected ({selectedBookIds.length})
+                    </button>
+                  )}
                 </div>
 
                 {/* Books Inventory Table */}
@@ -887,6 +1042,14 @@ const AdminDashboard = () => {
                     <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left', fontSize: '0.9rem' }}>
                       <thead>
                         <tr style={{ borderBottom: '1px solid rgba(255,255,255,0.1)', color: 'var(--text-muted)', background: 'rgba(0,0,0,0.1)' }}>
+                          <th style={{ padding: '16px', width: '40px', textAlign: 'center' }}>
+                            <input
+                              type="checkbox"
+                              checked={isAllFilteredBooksSelected}
+                              onChange={handleSelectAllBooks}
+                              style={{ cursor: 'pointer', transform: 'scale(1.1)' }}
+                            />
+                          </th>
                           <th style={{ padding: '16px' }}>Title</th>
                           <th style={{ padding: '16px' }}>Author</th>
                           <th style={{ padding: '16px' }}>Branch</th>
@@ -898,6 +1061,14 @@ const AdminDashboard = () => {
                       <tbody>
                         {filteredBooks.map(b => (
                           <tr key={b.id} style={{ borderBottom: '1px solid rgba(255,255,255,0.05)' }}>
+                            <td style={{ padding: '16px', textAlign: 'center' }}>
+                              <input
+                                type="checkbox"
+                                checked={selectedBookIds.includes(b.id)}
+                                onChange={e => handleSelectBook(b.id, e.target.checked)}
+                                style={{ cursor: 'pointer', transform: 'scale(1.1)' }}
+                              />
+                            </td>
                             <td style={{ padding: '16px', fontWeight: 600 }}>{b.title}</td>
                             <td style={{ padding: '16px' }}>{b.author}</td>
                             <td style={{ padding: '16px' }}>
@@ -1021,6 +1192,26 @@ const AdminDashboard = () => {
                     <span style={{ fontSize: '0.8rem', color: 'var(--text-muted)', whiteSpace: 'nowrap' }}>
                       {filteredStudents.length} of {students.length} students
                     </span>
+                    {selectedUserIds.length > 0 && (
+                      <button
+                        onClick={() => setShowBulkDeleteConfirm(true)}
+                        className="btn btn-danger animate-fade-in"
+                        style={{
+                          padding: '8px 16px',
+                          fontSize: '0.85rem',
+                          background: 'var(--danger)',
+                          borderColor: '#ef4444',
+                          color: '#fff',
+                          fontWeight: 600,
+                          marginLeft: 'auto',
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: '6px'
+                        }}
+                      >
+                        <Trash2 size={16} /> Delete Selected ({selectedUserIds.length})
+                      </button>
+                    )}
                   </div>
 
                   {/* Students Table */}
@@ -1036,6 +1227,14 @@ const AdminDashboard = () => {
                         <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left', fontSize: '0.875rem' }}>
                           <thead>
                             <tr style={{ borderBottom: '1px solid var(--border-glass)', background: 'rgba(0,0,0,0.08)' }}>
+                              <th style={{ padding: '14px 16px', width: '40px', textAlign: 'center' }}>
+                                <input
+                                  type="checkbox"
+                                  checked={isAllFilteredSelected}
+                                  onChange={handleSelectAll}
+                                  style={{ cursor: 'pointer', transform: 'scale(1.1)' }}
+                                />
+                              </th>
                               <th style={{ padding: '14px 16px', color: 'var(--text-muted)', fontWeight: 700, fontSize: '0.75rem', textTransform: 'uppercase', letterSpacing: '0.05em' }}>#</th>
                               <th style={{ padding: '14px 16px', color: 'var(--text-muted)', fontWeight: 700, fontSize: '0.75rem', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Student</th>
                               <th style={{ padding: '14px 16px', color: 'var(--text-muted)', fontWeight: 700, fontSize: '0.75rem', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Roll / BT</th>
@@ -1055,6 +1254,14 @@ const AdminDashboard = () => {
                               onMouseEnter={e => e.currentTarget.style.background = 'var(--bg-card-hover)'}
                               onMouseLeave={e => e.currentTarget.style.background = 'transparent'}
                               >
+                                <td style={{ padding: '14px 16px', textAlign: 'center' }}>
+                                  <input
+                                    type="checkbox"
+                                    checked={selectedUserIds.includes(s.id)}
+                                    onChange={e => handleSelectUser(s.id, e.target.checked)}
+                                    style={{ cursor: 'pointer', transform: 'scale(1.1)' }}
+                                  />
+                                </td>
                                 <td style={{ padding: '14px 16px', color: 'var(--text-muted)', fontSize: '0.8rem' }}>{idx + 1}</td>
                                 <td style={{ padding: '14px 16px' }}>
                                   <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
@@ -1084,25 +1291,63 @@ const AdminDashboard = () => {
                                 <td style={{ padding: '14px 16px', color: 'var(--text-secondary)' }}>
                                   Year {s.year} &bull; Sem {s.semester}
                                 </td>
-                                <td style={{ padding: '14px 16px' }}>{statusBadge(s.status)}</td>
-                                <td style={{ padding: '14px 16px', color: 'var(--text-muted)', fontSize: '0.8rem', whiteSpace: 'nowrap' }}>
-                                  {new Date(s.created_at).toLocaleDateString()}
-                                </td>
-                                <td style={{ padding: '14px 16px', textAlign: 'center' }}>
-                                  <button
-                                    onClick={() => setDeleteConfirm({ id: s.id, name: s.full_name })}
-                                    className="btn btn-secondary"
-                                    style={{
-                                      padding: '7px 12px',
-                                      borderColor: 'rgba(239,68,68,0.3)',
-                                      color: 'var(--danger)',
-                                      fontSize: '0.8rem', gap: '6px'
-                                    }}
-                                    title={`Delete ${s.full_name}'s account`}
-                                  >
-                                    <Trash2 size={14} /> Delete
-                                  </button>
-                                </td>
+                                 <td style={{ padding: '14px 16px' }}>
+                                   <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', alignItems: 'flex-start' }}>
+                                     {statusBadge(s.status)}
+                                     {s.is_blocked === 1 && (
+                                       <span className="badge badge-danger" style={{ fontSize: '0.65rem', background: 'rgba(239, 68, 68, 0.15)', color: '#ef4444', border: '1px solid rgba(239, 68, 68, 0.3)' }}>Blocked</span>
+                                     )}
+                                   </div>
+                                 </td>
+                                 <td style={{ padding: '14px 16px', color: 'var(--text-muted)', fontSize: '0.8rem', whiteSpace: 'nowrap' }}>
+                                   {new Date(s.created_at).toLocaleDateString()}
+                                 </td>
+                                 <td style={{ padding: '14px 16px', textAlign: 'center' }}>
+                                   <div style={{ display: 'flex', gap: '8px', justifyContent: 'center' }}>
+                                     {s.is_blocked === 1 ? (
+                                       <button
+                                         onClick={() => handleToggleBlock(s.id, false)}
+                                         className="btn btn-secondary"
+                                         style={{
+                                           padding: '7px 12px',
+                                           borderColor: 'rgba(16, 185, 129, 0.3)',
+                                           color: 'var(--success)',
+                                           fontSize: '0.8rem', gap: '6px'
+                                         }}
+                                         title={`Unblock ${s.full_name}`}
+                                       >
+                                         <UserCheck size={14} /> Unblock
+                                       </button>
+                                     ) : (
+                                       <button
+                                         onClick={() => handleToggleBlock(s.id, true)}
+                                         className="btn btn-secondary"
+                                         style={{
+                                           padding: '7px 12px',
+                                           borderColor: 'rgba(245, 158, 11, 0.3)',
+                                           color: 'var(--warning)',
+                                           fontSize: '0.8rem', gap: '6px'
+                                         }}
+                                         title={`Block ${s.full_name}`}
+                                       >
+                                         <UserX size={14} /> Block
+                                       </button>
+                                     )}
+                                     <button
+                                       onClick={() => setDeleteConfirm({ id: s.id, name: s.full_name })}
+                                       className="btn btn-secondary"
+                                       style={{
+                                         padding: '7px 12px',
+                                         borderColor: 'rgba(239,68,68,0.3)',
+                                         color: 'var(--danger)',
+                                         fontSize: '0.8rem', gap: '6px'
+                                       }}
+                                       title={`Delete ${s.full_name}'s account`}
+                                     >
+                                       <Trash2 size={14} /> Delete
+                                     </button>
+                                   </div>
+                                 </td>
                               </tr>
                             ))}
                           </tbody>
@@ -1287,6 +1532,137 @@ const AdminDashboard = () => {
               >
                 <Trash2 size={16} />
                 {deleteLoading ? 'Deleting...' : 'Yes, Delete'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── Bulk Delete Student Confirmation Modal ─────────────────────────── */}
+      {showBulkDeleteConfirm && (
+        <div style={{
+          position: 'fixed', top: 0, left: 0, right: 0, bottom: 0,
+          background: 'rgba(5, 7, 12, 0.85)',
+          backdropFilter: 'blur(10px)',
+          display: 'flex', alignItems: 'center', justifyContent: 'center',
+          zIndex: 2000, padding: '20px'
+        }}>
+          <div className="glass-panel animate-fade-in" style={{
+            width: '100%', maxWidth: '440px',
+            padding: '36px', textAlign: 'center',
+            border: '1px solid rgba(239,68,68,0.25)',
+            boxShadow: '0 0 40px rgba(239,68,68,0.12), var(--shadow-glass)'
+          }}>
+            {/* Icon */}
+            <div style={{
+              width: '64px', height: '64px', borderRadius: '50%', margin: '0 auto 20px',
+              background: 'rgba(239,68,68,0.12)', border: '1px solid rgba(239,68,68,0.3)',
+              display: 'flex', alignItems: 'center', justifyContent: 'center',
+              color: 'var(--danger)'
+            }}>
+              <AlertTriangle size={28} />
+            </div>
+
+            <h3 style={{ fontSize: '1.2rem', marginBottom: '10px' }}>Bulk Delete Student Accounts?</h3>
+            <p style={{ fontSize: '0.92rem', color: 'var(--text-secondary)', marginBottom: '8px' }}>
+              You are about to permanently delete the accounts of:
+            </p>
+            <div style={{
+              padding: '12px 20px', borderRadius: '10px',
+              background: 'rgba(239,68,68,0.08)', border: '1px solid rgba(239,68,68,0.2)',
+              marginBottom: '20px'
+            }}>
+              <span style={{ fontWeight: 700, fontSize: '1.2rem', color: 'var(--danger)' }}>
+                {selectedUserIds.length} Selected Students
+              </span>
+            </div>
+            <p style={{ fontSize: '0.8rem', color: 'var(--text-muted)', marginBottom: '28px', lineHeight: 1.6 }}>
+              This action is <strong style={{ color: 'var(--danger)' }}>irreversible</strong>. All their reading progress,
+              branch permissions, and activity logs will also be permanently deleted.
+            </p>
+
+            <div style={{ display: 'flex', gap: '12px', justifyContent: 'center' }}>
+              <button
+                onClick={() => setShowBulkDeleteConfirm(false)}
+                className="btn btn-secondary"
+                style={{ padding: '10px 24px', minWidth: '120px' }}
+                disabled={bulkDeleteLoading}
+              >
+                <X size={16} /> Cancel
+              </button>
+              <button
+                onClick={handleBulkDeleteStudents}
+                className="btn btn-danger"
+                style={{ padding: '10px 24px', minWidth: '140px' }}
+                disabled={bulkDeleteLoading}
+              >
+                <Trash2 size={16} />
+                {bulkDeleteLoading ? 'Deleting...' : 'Yes, Delete All'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── Bulk Delete Books Confirmation Modal ───────────────────────────── */}
+      {showBulkDeleteBooksConfirm && (
+        <div style={{
+          position: 'fixed', top: 0, left: 0, right: 0, bottom: 0,
+          background: 'rgba(5, 7, 12, 0.85)',
+          backdropFilter: 'blur(10px)',
+          display: 'flex', alignItems: 'center', justifyContent: 'center',
+          zIndex: 2000, padding: '20px'
+        }}>
+          <div className="glass-panel animate-fade-in" style={{
+            width: '100%', maxWidth: '440px',
+            padding: '36px', textAlign: 'center',
+            border: '1px solid rgba(239,68,68,0.25)',
+            boxShadow: '0 0 40px rgba(239,68,68,0.12), var(--shadow-glass)'
+          }}>
+            {/* Icon */}
+            <div style={{
+              width: '64px', height: '64px', borderRadius: '50%', margin: '0 auto 20px',
+              background: 'rgba(239,68,68,0.12)', border: '1px solid rgba(239,68,68,0.3)',
+              display: 'flex', alignItems: 'center', justifyContent: 'center',
+              color: 'var(--danger)'
+            }}>
+              <AlertTriangle size={28} />
+            </div>
+
+            <h3 style={{ fontSize: '1.2rem', marginBottom: '10px' }}>Bulk Delete Books?</h3>
+            <p style={{ fontSize: '0.92rem', color: 'var(--text-secondary)', marginBottom: '8px' }}>
+              You are about to permanently delete the catalog entries and PDF files of:
+            </p>
+            <div style={{
+              padding: '12px 20px', borderRadius: '10px',
+              background: 'rgba(239,68,68,0.08)', border: '1px solid rgba(239,68,68,0.2)',
+              marginBottom: '20px'
+            }}>
+              <span style={{ fontWeight: 700, fontSize: '1.2rem', color: 'var(--danger)' }}>
+                {selectedBookIds.length} Selected Books
+              </span>
+            </div>
+            <p style={{ fontSize: '0.8rem', color: 'var(--text-muted)', marginBottom: '28px', lineHeight: 1.6 }}>
+              This action is <strong style={{ color: 'var(--danger)' }}>irreversible</strong>. Physical PDF files will be unlinked from the server and users will lose all reading progress on these books.
+            </p>
+
+            <div style={{ display: 'flex', gap: '12px', justifyContent: 'center' }}>
+              <button
+                onClick={() => setShowBulkDeleteBooksConfirm(false)}
+                className="btn btn-secondary"
+                style={{ padding: '10px 24px', minWidth: '120px' }}
+                disabled={bulkDeleteBooksLoading}
+              >
+                <X size={16} /> Cancel
+              </button>
+              <button
+                onClick={handleBulkDeleteBooks}
+                className="btn btn-danger"
+                style={{ padding: '10px 24px', minWidth: '140px' }}
+                disabled={bulkDeleteBooksLoading}
+              >
+                <Trash2 size={16} />
+                {bulkDeleteBooksLoading ? 'Deleting...' : 'Yes, Delete All'}
               </button>
             </div>
           </div>
@@ -1663,6 +2039,136 @@ const AdminDashboard = () => {
             </div>
 
             <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
+          </div>
+        </div>
+      )}
+
+      {/* Mobile Top Header */}
+      <header className="mobile-header">
+        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+          <BookOpen size={20} color="var(--primary)" />
+          <span style={{ fontSize: '1rem', fontWeight: 700, color: 'var(--text-primary)' }}>
+            Admin Panel
+          </span>
+        </div>
+        <button 
+          onClick={() => setShowMenuDrawer(true)}
+          className="btn btn-secondary"
+          style={{ padding: '6px', borderRadius: '50%', width: '32px', height: '32px', minWidth: '32px', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+        >
+          <Menu size={16} />
+        </button>
+      </header>
+
+      {/* Mobile Bottom Navigation */}
+      <nav className="mobile-bottom-nav">
+        <button 
+          onClick={() => setActiveTab('overview')}
+          className={`mobile-nav-item ${activeTab === 'overview' ? 'active' : ''}`}
+        >
+          <BarChart3 size={18} />
+          <span>Stats</span>
+        </button>
+        <button 
+          onClick={() => setActiveTab('users')}
+          className={`mobile-nav-item ${activeTab === 'users' ? 'active' : ''}`}
+        >
+          <Users size={18} />
+          <span>Approvals</span>
+        </button>
+        <button 
+          onClick={() => setActiveTab('permissions')}
+          className={`mobile-nav-item ${activeTab === 'permissions' ? 'active' : ''}`}
+        >
+          <Key size={18} />
+          <span>Requests</span>
+        </button>
+        <button 
+          onClick={() => setActiveTab('books')}
+          className={`mobile-nav-item ${activeTab === 'books' ? 'active' : ''}`}
+        >
+          <BookOpen size={18} />
+          <span>Books</span>
+        </button>
+      </nav>
+
+      {/* Mobile Navigation Drawer */}
+      {showMenuDrawer && (
+        <div className="mobile-drawer-overlay" onClick={() => setShowMenuDrawer(false)}>
+          <div className="mobile-drawer" onClick={(e) => e.stopPropagation()}>
+            <div className="mobile-drawer-header">
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <BookOpen size={18} color="var(--primary)" />
+                <h4 style={{ margin: 0, color: 'var(--text-primary)' }}>Admin Operations</h4>
+              </div>
+              <button 
+                onClick={() => setShowMenuDrawer(false)}
+                className="btn btn-secondary"
+                style={{ padding: '4px', borderRadius: '50%', width: '28px', height: '28px', minWidth: '28px', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+              >
+                <X size={14} />
+              </button>
+            </div>
+            
+            <div className="mobile-drawer-content" style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+              <div className="student-profile-info" style={{ marginBottom: '12px' }}>
+                <div style={{ fontWeight: 600, color: 'var(--text-primary)' }}>Root Admin Account</div>
+                <div style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', marginTop: '2px' }}>System Administrator</div>
+              </div>
+
+              <button 
+                onClick={() => { setActiveTab('overview'); setShowMenuDrawer(false); }}
+                className={`btn ${activeTab === 'overview' ? 'btn-primary' : 'btn-secondary'}`}
+                style={{ justifyContent: 'flex-start', width: '100%', padding: '10px 16px' }}
+              >
+                <BarChart3 size={16} /> Overview & Analytics
+              </button>
+              <button 
+                onClick={() => { setActiveTab('users'); setShowMenuDrawer(false); }}
+                className={`btn ${activeTab === 'users' ? 'btn-primary' : 'btn-secondary'}`}
+                style={{ justifyContent: 'flex-start', width: '100%', padding: '10px 16px' }}
+              >
+                <Users size={16} /> User Approvals ({pendingUsers.length})
+              </button>
+              <button 
+                onClick={() => { setActiveTab('permissions'); setShowMenuDrawer(false); }}
+                className={`btn ${activeTab === 'permissions' ? 'btn-primary' : 'btn-secondary'}`}
+                style={{ justifyContent: 'flex-start', width: '100%', padding: '10px 16px' }}
+              >
+                <Key size={16} /> Access Requests ({pendingRequests.length})
+              </button>
+              <button 
+                onClick={() => { setActiveTab('books'); setShowMenuDrawer(false); }}
+                className={`btn ${activeTab === 'books' ? 'btn-primary' : 'btn-secondary'}`}
+                style={{ justifyContent: 'flex-start', width: '100%', padding: '10px 16px' }}
+              >
+                <BookOpen size={16} /> Book Inventory
+              </button>
+              <button 
+                onClick={() => { setActiveTab('students'); setShowMenuDrawer(false); }}
+                className={`btn ${activeTab === 'students' ? 'btn-primary' : 'btn-secondary'}`}
+                style={{ justifyContent: 'flex-start', width: '100%', padding: '10px 16px' }}
+              >
+                <UserCheck size={16} /> All Students ({students.length})
+              </button>
+              <button 
+                onClick={() => { setActiveTab('logs'); setShowMenuDrawer(false); }}
+                className={`btn ${activeTab === 'logs' ? 'btn-primary' : 'btn-secondary'}`}
+                style={{ justifyContent: 'flex-start', width: '100%', padding: '10px 16px' }}
+              >
+                <History size={16} /> System Audit Logs
+              </button>
+
+              <div style={{ margin: '8px 0', borderTop: '1px solid rgba(255,255,255,0.05)' }} />
+
+              <button 
+                onClick={() => { logout(); setShowMenuDrawer(false); }}
+                className="btn btn-secondary"
+                style={{ justifyContent: 'center', width: '100%', borderColor: 'rgba(239, 68, 68, 0.2)', color: '#ef4444' }}
+              >
+                <X size={16} /> Log Out
+              </button>
+            </div>
           </div>
         </div>
       )}

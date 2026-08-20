@@ -16,7 +16,7 @@ async function seed() {
     ];
     
     for (const b of branches) {
-      await dbQuery.run('INSERT OR IGNORE INTO branches (name) VALUES (?)', [b]);
+      await dbQuery.run('INSERT INTO branches (name) VALUES (?) ON CONFLICT (name) DO NOTHING', [b]);
     }
     console.log('Branches seeded.');
 
@@ -38,7 +38,10 @@ async function seed() {
     ];
 
     for (const cat of mainCategories) {
-      await dbQuery.run('INSERT OR IGNORE INTO categories (name, parent_category_id) VALUES (?, NULL)', [cat.name]);
+      const existing = await dbQuery.get('SELECT id FROM categories WHERE name = ? AND parent_category_id IS NULL', [cat.name]);
+      if (!existing) {
+        await dbQuery.run('INSERT INTO categories (name, parent_category_id) VALUES (?, NULL)', [cat.name]);
+      }
     }
 
     const dbMainCats = await dbQuery.all('SELECT * FROM categories WHERE parent_category_id IS NULL');
@@ -59,7 +62,10 @@ async function seed() {
     ];
 
     for (const sub of subCategories) {
-      await dbQuery.run('INSERT OR IGNORE INTO categories (name, parent_category_id) VALUES (?, ?)', [sub.name, sub.parentId]);
+      const existing = await dbQuery.get('SELECT id FROM categories WHERE name = ? AND parent_category_id = ?', [sub.name, sub.parentId]);
+      if (!existing) {
+        await dbQuery.run('INSERT INTO categories (name, parent_category_id) VALUES (?, ?)', [sub.name, sub.parentId]);
+      }
     }
     console.log('Categories & Sub-categories seeded.');
 
@@ -207,14 +213,16 @@ async function seed() {
 
     // Default Admin User
     await dbQuery.run(`
-      INSERT OR IGNORE INTO users (username, password_hash, full_name, role, status)
+      INSERT INTO users (username, password_hash, full_name, role, status)
       VALUES (?, ?, ?, ?, ?)
+      ON CONFLICT (username) DO NOTHING
     `, ['admin', adminPasswordHash, 'System Administrator', 'admin', 'approved']);
 
     // Default Approved Student (Computer Science)
     await dbQuery.run(`
-      INSERT OR IGNORE INTO users (username, password_hash, full_name, roll_number, branch_name, year, semester, bt_number, role, status)
+      INSERT INTO users (username, password_hash, full_name, roll_number, branch_name, year, semester, bt_number, role, status)
       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      ON CONFLICT (username) DO NOTHING
     `, [
       'student_cs', 
       studentPasswordHash, 
@@ -230,8 +238,9 @@ async function seed() {
 
     // Default Pending Student (IT)
     await dbQuery.run(`
-      INSERT OR IGNORE INTO users (username, password_hash, full_name, roll_number, branch_name, year, semester, bt_number, role, status)
+      INSERT INTO users (username, password_hash, full_name, roll_number, branch_name, year, semester, bt_number, role, status)
       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      ON CONFLICT (username) DO NOTHING
     `, [
       'student_pending', 
       studentPasswordHash, 

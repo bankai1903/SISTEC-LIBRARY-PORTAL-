@@ -1,71 +1,135 @@
-const sqlite3 = require('sqlite3').verbose();
+const { Pool } = require('pg');
 const path = require('path');
-const fs = require('fs');
 
-const dbDir = process.env.DATA_DIR || path.join(__dirname);
-if (!fs.existsSync(dbDir)) {
-  fs.mkdirSync(dbDir, { recursive: true });
+// Load environment variables from .env in the server directory
+require('dotenv').config({ path: path.join(__dirname, '../.env') });
+
+const connectionString = process.env.DATABASE_URL;
+const isPlaceholder = !connectionString || connectionString.includes('[YOUR-PASSWORD]') || connectionString.includes('[YOUR-PROJECT-REF]');
+
+if (isPlaceholder) {
+  console.error('\n======================================================================');
+  console.error('⚠️  DATABASE_URL is missing or contains placeholders in server/.env!');
+  console.error('Please configure your real Supabase connection string to start the app.');
+  console.error('======================================================================\n');
 }
 
-const dbPath = path.join(dbDir, 'library.db');
-const db = new sqlite3.Database(dbPath, (err) => {
-  if (err) {
-    console.error('Error opening database:', err);
-  } else {
-    console.log('Connected to SQLite database at:', dbPath);
-    // NOTE: PRAGMA foreign_keys is now set inside initDatabase() with proper await
-    // to guarantee it runs before any queries (see C-5 fix)
-  }
+const pool = new Pool({
+  connectionString: isPlaceholder ? undefined : connectionString,
+  ssl: connectionString && (connectionString.includes('supabase') || connectionString.includes('neon') || connectionString.includes('render'))
+    ? { rejectUnauthorized: false }
+    : false
 });
 
-// Helper functions to use promises with sqlite3
+// Helper function to translate SQLite "?" placeholders to PostgreSQL "$1, $2, ..."
+function convertSql(sql) {
+  if (!sql) return sql;
+
+  // Skip SQLite-specific PRAGMA commands
+  if (sql.trim().toUpperCase().startsWith('PRAGMA')) {
+    return '';
+  }
+
+  let paramIndex = 1;
+  let translatedSql = '';
+  let inSingleQuote = false;
+  let inDoubleQuote = false;
+
+  for (let i = 0; i < sql.length; i++) {
+    const char = sql[i];
+    if (char === "'" && (i === 0 || sql[i - 1] !== '\\')) {
+      inSingleQuote = !inSingleQuote;
+      translatedSql += char;
+    } else if (char === '"' && (i === 0 || sql[i - 1] !== '\\')) {
+      inDoubleQuote = !inDoubleQuote;
+      translatedSql += char;
+    } else if (char === '?' && !inSingleQuote && !inDoubleQuote) {
+      translatedSql += '$' + paramIndex;
+      paramIndex++;
+    } else {
+      translatedSql += char;
+    }
+  }
+
+  // Convert SQLite AUTOINCREMENT to Postgres SERIAL
+  let formattedSql = translatedSql
+    .replace(/\bINTEGER PRIMARY KEY AUTOINCREMENT\b/gi, 'SERIAL PRIMARY KEY')
+    .replace(/\bDATETIME DEFAULT CURRENT_TIMESTAMP\b/gi, 'TIMESTAMP DEFAULT CURRENT_TIMESTAMP');
+
+  return formattedSql;
+}
+
+// Helper functions to mimic SQLite promise-based interface with pg Pool
 const dbQuery = {
-  run(sql, params = []) {
-    return new Promise((resolve, reject) => {
-      db.run(sql, params, function (err) {
-        if (err) reject(err);
-        else resolve({ id: this.lastID, changes: this.changes });
-      });
-    });
+  async run(sql, params = []) {
+    if (isPlaceholder) return { id: null, changes: 0 };
+    const querySql = convertSql(sql);
+    if (!querySql) return { id: null, changes: 0 };
+
+    const client = await pool.connect();
+    try {
+      let finalSql = querySql;
+      const isInsert = querySql.trim().toUpperCase().startsWith('INSERT');
+      if (isInsert && !querySql.toUpperCase().includes('RETURNING')) {
+        finalSql += ' RETURNING id';
+      }
+      const res = await client.query(finalSql, params);
+      const lastID = (isInsert && res.rows[0]) ? res.rows[0].id : null;
+      return { id: lastID, changes: res.rowCount };
+    } finally {
+      client.release();
+    }
   },
-  get(sql, params = []) {
-    return new Promise((resolve, reject) => {
-      db.get(sql, params, (err, row) => {
-        if (err) reject(err);
-        else resolve(row);
-      });
-    });
+
+  async get(sql, params = []) {
+    if (isPlaceholder) return null;
+    const querySql = convertSql(sql);
+    if (!querySql) return null;
+
+    const client = await pool.connect();
+    try {
+      const res = await client.query(querySql, params);
+      return res.rows[0] || null;
+    } finally {
+      client.release();
+    }
   },
-  all(sql, params = []) {
-    return new Promise((resolve, reject) => {
-      db.all(sql, params, (err, rows) => {
-        if (err) reject(err);
-        else resolve(rows);
-      });
-    });
+
+  async all(sql, params = []) {
+    if (isPlaceholder) return [];
+    const querySql = convertSql(sql);
+    if (!querySql) return [];
+
+    const client = await pool.connect();
+    try {
+      const res = await client.query(querySql, params);
+      return res.rows;
+    } finally {
+      client.release();
+    }
   },
-  exec(sql) {
-    return new Promise((resolve, reject) => {
-      db.exec(sql, (err) => {
-        if (err) reject(err);
-        else resolve();
-      });
-    });
+
+  async exec(sql) {
+    if (isPlaceholder) return;
+    const querySql = convertSql(sql);
+    if (!querySql) return;
+
+    const client = await pool.connect();
+    try {
+      await client.query(querySql);
+    } finally {
+      client.release();
+    }
   }
 };
 
 // Initialize database schema
 async function initDatabase() {
   try {
-    // C-5 FIX: Enable foreign keys FIRST, awaited, before any table creation or queries.
-    // Previously this was a fire-and-forget db.run() in the connection callback which
-    // had no guarantee of completing before subsequent queries ran.
-    await dbQuery.run('PRAGMA foreign_keys = ON');
-
     // 1. Branches table
     await dbQuery.run(`
       CREATE TABLE IF NOT EXISTS branches (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        id SERIAL PRIMARY KEY,
         name TEXT UNIQUE NOT NULL
       )
     `);
@@ -73,7 +137,7 @@ async function initDatabase() {
     // 2. Categories table
     await dbQuery.run(`
       CREATE TABLE IF NOT EXISTS categories (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        id SERIAL PRIMARY KEY,
         name TEXT NOT NULL,
         parent_category_id INTEGER REFERENCES categories(id) ON DELETE SET NULL
       )
@@ -82,21 +146,21 @@ async function initDatabase() {
     // 3. Books table
     await dbQuery.run(`
       CREATE TABLE IF NOT EXISTS books (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        id SERIAL PRIMARY KEY,
         title TEXT NOT NULL,
         author TEXT NOT NULL,
         category_id INTEGER REFERENCES categories(id) ON DELETE CASCADE,
         branch_id INTEGER REFERENCES branches(id) ON DELETE CASCADE,
         priority TEXT NOT NULL CHECK(priority IN ('main', 'sub')),
         pdf_url TEXT,
-        created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
       )
     `);
 
     // 4. Users table
     await dbQuery.run(`
       CREATE TABLE IF NOT EXISTS users (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        id SERIAL PRIMARY KEY,
         username TEXT UNIQUE NOT NULL,
         password_hash TEXT NOT NULL,
         full_name TEXT NOT NULL,
@@ -107,26 +171,34 @@ async function initDatabase() {
         bt_number TEXT,
         role TEXT NOT NULL CHECK(role IN ('admin', 'student')),
         status TEXT NOT NULL CHECK(status IN ('pending', 'approved', 'rejected')),
-        created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+        is_blocked INTEGER DEFAULT 0,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
       )
     `);
+
+    // Dynamically upgrade existing users table if column doesn't exist
+    try {
+      await dbQuery.run('ALTER TABLE users ADD COLUMN IF NOT EXISTS is_blocked INTEGER DEFAULT 0');
+    } catch (err) {
+      console.error('Error altering users table:', err);
+    }
 
     // 5. Branch access permissions
     await dbQuery.run(`
       CREATE TABLE IF NOT EXISTS permissions (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        id SERIAL PRIMARY KEY,
         user_id INTEGER REFERENCES users(id) ON DELETE CASCADE,
         branch_id INTEGER REFERENCES branches(id) ON DELETE CASCADE,
         status TEXT NOT NULL CHECK(status IN ('pending', 'approved', 'rejected')),
-        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
         UNIQUE(user_id, branch_id)
       )
     `);
 
-    // 6. User book progress (accumulated tracking of views, downloads, deletion, and last page read)
+    // 6. User book progress
     await dbQuery.run(`
       CREATE TABLE IF NOT EXISTS user_book_progress (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        id SERIAL PRIMARY KEY,
         user_id INTEGER REFERENCES users(id) ON DELETE CASCADE,
         book_id INTEGER REFERENCES books(id) ON DELETE CASCADE,
         last_page_read INTEGER DEFAULT 1,
@@ -134,24 +206,24 @@ async function initDatabase() {
         downloaded_count INTEGER DEFAULT 0,
         is_downloaded INTEGER DEFAULT 0,
         is_deleted INTEGER DEFAULT 0,
-        last_accessed_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        last_accessed_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
         UNIQUE(user_id, book_id)
       )
     `);
 
-    // 7. Activity logs (individual events)
+    // 7. Activity logs
     await dbQuery.run(`
       CREATE TABLE IF NOT EXISTS activity_logs (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        id SERIAL PRIMARY KEY,
         user_id INTEGER REFERENCES users(id) ON DELETE CASCADE,
         action_type TEXT NOT NULL CHECK(action_type IN ('login', 'logout', 'view', 'download', 'delete_log', 'admin_action')),
         book_id INTEGER REFERENCES books(id) ON DELETE SET NULL,
         details TEXT,
-        created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
       )
     `);
 
-    // 8. Database Indexes for JOIN and query filtering optimization
+    // 8. Database Indexes
     await dbQuery.run('CREATE INDEX IF NOT EXISTS idx_books_category ON books(category_id)');
     await dbQuery.run('CREATE INDEX IF NOT EXISTS idx_books_branch ON books(branch_id)');
     await dbQuery.run('CREATE INDEX IF NOT EXISTS idx_permissions_user ON permissions(user_id)');
@@ -162,14 +234,14 @@ async function initDatabase() {
     await dbQuery.run('CREATE INDEX IF NOT EXISTS idx_logs_book ON activity_logs(book_id)');
     await dbQuery.run('CREATE INDEX IF NOT EXISTS idx_logs_created ON activity_logs(created_at DESC)');
 
-    console.log('Database tables and performance indexes initialized successfully.');
+    console.log('PostgreSQL database tables and performance indexes initialized successfully.');
   } catch (error) {
     console.error('Error initializing database tables:', error);
   }
 }
 
 module.exports = {
-  db,
+  pool,
   dbQuery,
   initDatabase
 };
