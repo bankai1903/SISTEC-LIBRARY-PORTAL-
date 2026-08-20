@@ -1,4 +1,11 @@
 const express = require('express');
+const dns = require('dns');
+
+// Force Node.js to prefer IPv4 DNS resolution (resolves ENETUNREACH issues on environments like Render)
+if (typeof dns.setDefaultResultOrder === 'function') {
+  dns.setDefaultResultOrder('ipv4first');
+}
+
 const cors = require('cors');
 const path = require('path');
 const { initDatabase } = require('./db/database');
