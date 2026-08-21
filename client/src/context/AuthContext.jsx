@@ -13,85 +13,193 @@ export const AuthProvider = ({ children }) => {
   const [session, setSession] = useState(null);
   const [loading, setLoading] = useState(true);
 
-  // Clear local user state
+  // Clear local session state
   const clearSession = () => {
     localStorage.removeItem('lib_custom_user');
     setUser(null);
     setSession(null);
   };
 
-  // Generic DB query helper using Supabase JS client
+  // Comprehensive Supabase Router for frontend actions
   const apiCall = async (endpoint, options = {}) => {
-    // For Supabase client queries, we route endpoints to Supabase DB tables
+    const method = (options.method || 'GET').toUpperCase();
+    const body = options.body ? (typeof options.body === 'string' ? JSON.parse(options.body) : options.body) : {};
+
+    // 1. Branches
     if (endpoint === '/auth/branches' || endpoint === '/books/branches') {
       const { data, error } = await supabase.from('branches').select('*').order('name', { ascending: true });
       if (error) throw error;
-      return data;
+      return data || [];
     }
 
+    // 2. Categories
     if (endpoint === '/books/categories') {
       const { data, error } = await supabase.from('categories').select('*, parent:parent_category_id(name)');
       if (error) throw error;
-      return data.map(c => ({ ...c, parent_name: c.parent ? c.parent.name : null }));
+      return (data || []).map(c => ({ ...c, parent_name: c.parent ? c.parent.name : null }));
     }
 
+    // 3. Books
     if (endpoint === '/books') {
-      let query = supabase.from('books').select(`
-        *,
-        category:category_id(name),
-        branch:branch_id(name)
-      `).order('created_at', { ascending: false });
+      if (method === 'GET') {
+        const { data, error } = await supabase.from('books').select(`
+          *,
+          category:category_id(name),
+          branch:branch_id(name)
+        `).order('created_at', { ascending: false });
+        if (error) throw error;
+        return (data || []).map(b => ({
+          ...b,
+          category_name: b.category ? b.category.name : null,
+          branch_name: b.branch ? b.branch.name : null
+        }));
+      }
+      if (method === 'POST') {
+        const { data, error } = await supabase.from('books').insert([body]).select().single();
+        if (error) throw error;
+        return data;
+      }
+    }
 
-      const { data, error } = await query;
+    // 4. Users / Students
+    if (endpoint === '/auth/users') {
+      const { data, error } = await supabase.from('users').select('*').order('created_at', { ascending: false });
       if (error) throw error;
-      return data.map(b => ({
-        ...b,
-        category_name: b.category ? b.category.name : null,
-        branch_name: b.branch ? b.branch.name : null
+      return data || [];
+    }
+
+    if (endpoint === '/auth/pending-users') {
+      const { data, error } = await supabase.from('users').select('*').eq('role', 'student').eq('status', 'pending').order('created_at', { ascending: false });
+      if (error) throw error;
+      return data || [];
+    }
+
+    // Approve / Reject User
+    if (endpoint.startsWith('/auth/approve-user/')) {
+      const userId = endpoint.split('/').pop();
+      const { data, error } = await supabase.from('users').update({ status: body.status }).eq('id', userId).select().single();
+      if (error) throw error;
+      return { message: `User status updated to ${body.status}`, data };
+    }
+
+    // Block User
+    if (endpoint.endsWith('/block')) {
+      const parts = endpoint.split('/');
+      const userId = parts[parts.length - 2];
+      const { data, error } = await supabase.from('users').update({ is_blocked: 1 }).eq('id', userId).select().single();
+      if (error) throw error;
+      return { message: 'User blocked', data };
+    }
+
+    // Unblock User
+    if (endpoint.endsWith('/unblock')) {
+      const parts = endpoint.split('/');
+      const userId = parts[parts.length - 2];
+      const { data, error } = await supabase.from('users').update({ is_blocked: 0 }).eq('id', userId).select().single();
+      if (error) throw error;
+      return { message: 'User unblocked', data };
+    }
+
+    // Delete single user
+    if (endpoint.startsWith('/auth/users/') && method === 'DELETE') {
+      const userId = endpoint.split('/').pop();
+      const { error } = await supabase.from('users').delete().eq('id', userId);
+      if (error) throw error;
+      return { message: 'User deleted' };
+    }
+
+    // Bulk delete users
+    if (endpoint === '/auth/bulk-delete') {
+      const { userIds } = body;
+      const { error } = await supabase.from('users').delete().in('id', userIds);
+      if (error) throw error;
+      return { message: 'Users deleted successfully' };
+    }
+
+    // 5. Permissions / Requests
+    if (endpoint === '/permissions/pending-requests') {
+      const { data, error } = await supabase.from('permissions').select('*, user:user_id(full_name, roll_number, branch_name), branch:branch_id(name)').eq('status', 'pending').order('created_at', { ascending: false });
+      if (error) throw error;
+      return (data || []).map(p => ({
+        ...p,
+        user_name: p.user ? p.user.full_name : null,
+        roll_number: p.user ? p.user.roll_number : null,
+        user_branch: p.user ? p.user.branch_name : null,
+        branch_name: p.branch ? p.branch.name : null
       }));
     }
 
     if (endpoint === '/permissions/my-requests') {
       if (!user) return [];
-      const { data, error } = await supabase
-        .from('permissions')
-        .select('*, branch:branch_id(name)')
-        .eq('user_id', user.id);
+      const { data, error } = await supabase.from('permissions').select('*, branch:branch_id(name)').eq('user_id', user.id);
       if (error) throw error;
-      return data.map(p => ({
-        ...p,
-        branch_name: p.branch ? p.branch.name : null
-      }));
+      return (data || []).map(p => ({ ...p, branch_name: p.branch ? p.branch.name : null }));
     }
 
-    if (endpoint === '/analytics/my-history') {
-      if (!user) return [];
-      const { data, error } = await supabase
-        .from('activity_logs')
-        .select('*, book:book_id(title, author)')
-        .eq('user_id', user.id)
-        .order('created_at', { ascending: false })
-        .limit(20);
+    if (endpoint.startsWith('/permissions/action/')) {
+      const permId = endpoint.split('/').pop();
+      const { data, error } = await supabase.from('permissions').update({ status: body.status }).eq('id', permId).select().single();
       if (error) throw error;
-      return data.map(l => ({
-        ...l,
-        book_title: l.book ? l.book.title : null,
-        book_author: l.book ? l.book.author : null
-      }));
+      return { message: `Permission ${body.status}`, data };
     }
 
-    if (endpoint === '/permissions/request' && options.body) {
-      const body = typeof options.body === 'string' ? JSON.parse(options.body) : options.body;
+    if (endpoint === '/permissions/request' && method === 'POST') {
       const { data, error } = await supabase.from('permissions').insert([{
         user_id: user.id,
-        branch_id: body.branch_id,
+        branch_id: body.branchId || body.branch_id,
         status: 'pending'
       }]).select().single();
       if (error) throw error;
       return data;
     }
 
-    // Default fallback
+    // 6. Analytics & Logs
+    if (endpoint === '/analytics/dashboard') {
+      const [{ count: totalUsers }, { count: totalBooks }, { count: totalDownloads }] = await Promise.all([
+        supabase.from('users').select('*', { count: 'exact', head: true }),
+        supabase.from('books').select('*', { count: 'exact', head: true }),
+        supabase.from('activity_logs').select('*', { count: 'exact', head: true }).eq('action_type', 'download')
+      ]);
+
+      const { data: logsData } = await supabase.from('activity_logs').select('*, user:user_id(full_name), book:book_id(title)').order('created_at', { ascending: false }).limit(10);
+
+      return {
+        totalUsers: totalUsers || 0,
+        totalBooks: totalBooks || 0,
+        totalDownloads: totalDownloads || 0,
+        recentActivity: (logsData || []).map(l => ({
+          ...l,
+          user_name: l.user ? l.user.full_name : null,
+          book_title: l.book ? l.book.title : null
+        }))
+      };
+    }
+
+    if (endpoint === '/analytics/my-history') {
+      if (!user) return [];
+      const { data, error } = await supabase.from('activity_logs').select('*, book:book_id(title, author)').eq('user_id', user.id).order('created_at', { ascending: false }).limit(20);
+      if (error) throw error;
+      return (data || []).map(l => ({
+        ...l,
+        book_title: l.book ? l.book.title : null,
+        book_author: l.book ? l.book.author : null
+      }));
+    }
+
+    if (endpoint.startsWith('/analytics/logs')) {
+      const { data, error, count } = await supabase.from('activity_logs').select('*, user:user_id(full_name, role), book:book_id(title)', { count: 'exact' }).order('created_at', { ascending: false }).limit(50);
+      if (error) throw error;
+      return {
+        logs: (data || []).map(l => ({
+          ...l,
+          user_name: l.user ? l.user.full_name : null,
+          user_role: l.user ? l.user.role : null,
+          book_title: l.book ? l.book.title : null
+        })),
+        pagination: { page: 1, limit: 50, total: count || 0, totalPages: 1 }
+      };
+    }
+
     return [];
   };
 
@@ -102,7 +210,6 @@ export const AuthProvider = ({ children }) => {
       const savedUser = localStorage.getItem('lib_custom_user');
       if (savedUser) {
         const parsed = JSON.parse(savedUser);
-        // Verify from Supabase users table
         const { data, error } = await supabase
           .from('users')
           .select('id, username, full_name, roll_number, branch_name, year, semester, bt_number, role, status, is_blocked')
@@ -143,9 +250,8 @@ export const AuthProvider = ({ children }) => {
     loadUser();
   }, [loadUser]);
 
-  // Login with Supabase
+  // Login
   const login = async (username, password) => {
-    // Look up username in users table
     const { data: userRecord, error: userError } = await supabase
       .from('users')
       .select('*')
@@ -168,7 +274,6 @@ export const AuthProvider = ({ children }) => {
       throw new Error('Your registration request was rejected by the admin');
     }
 
-    // Check password hash using standard comparison or match
     const formattedUser = {
       id: userRecord.id,
       username: userRecord.username,
@@ -185,12 +290,15 @@ export const AuthProvider = ({ children }) => {
     localStorage.setItem('lib_custom_user', JSON.stringify(formattedUser));
     setUser(formattedUser);
 
-    // Log activity
-    await supabase.from('activity_logs').insert([{
-      user_id: userRecord.id,
-      action_type: 'login',
-      details: 'User logged in'
-    }]);
+    try {
+      await supabase.from('activity_logs').insert([{
+        user_id: userRecord.id,
+        action_type: 'login',
+        details: 'User logged in'
+      }]);
+    } catch (e) {
+      console.warn('Could not write login activity log:', e);
+    }
 
     return formattedUser;
   };
@@ -211,7 +319,7 @@ export const AuthProvider = ({ children }) => {
     clearSession();
   };
 
-  // Register with Supabase
+  // Register
   const register = async (userData) => {
     const {
       username,
@@ -224,7 +332,6 @@ export const AuthProvider = ({ children }) => {
       btNumber
     } = userData;
 
-    // Check existing
     const { data: existing } = await supabase
       .from('users')
       .select('id')
@@ -237,7 +344,7 @@ export const AuthProvider = ({ children }) => {
 
     const { data, error } = await supabase.from('users').insert([{
       username,
-      password_hash: password, // stores in Supabase
+      password_hash: password,
       full_name: fullName,
       roll_number: rollNumber,
       branch_name: branchName,
