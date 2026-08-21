@@ -1,22 +1,8 @@
 /* eslint-disable react-refresh/only-export-components */
 import { createContext, useContext, useState, useEffect, useCallback } from 'react';
+import { supabase } from '../supabaseClient';
 
-const getBaseUrl = () => {
-  if (typeof window !== 'undefined') {
-    const saved = localStorage.getItem('lib_server_url');
-    if (saved) return saved;
-  }
-  // Check if running inside Capacitor (native app)
-  const isCapacitor = typeof window !== 'undefined' && window.Capacitor !== undefined;
-  if (isCapacitor) {
-    // Default to the host computer's current local Wi-Fi IP.
-    // If testing on another network, use the settings gear icon to update the IP.
-    return 'http://192.168.1.3:5000';
-  }
-  return window.location.port ? `${window.location.protocol}//${window.location.hostname}:5000` : window.location.origin;
-};
-
-export const BASE_URL = getBaseUrl();
+export const BASE_URL = typeof window !== 'undefined' ? (window.location.port ? `${window.location.protocol}//${window.location.hostname}:5000` : window.location.origin) : '';
 
 const AuthContext = createContext(null);
 
@@ -24,147 +10,251 @@ export const useAuth = () => useContext(AuthContext);
 
 export const AuthProvider = ({ children }) => {
   const [user, setUser] = useState(null);
-  const [token, setToken] = useState(localStorage.getItem('lib_token') || null);
+  const [session, setSession] = useState(null);
   const [loading, setLoading] = useState(true);
 
-  // C-3 FIX: Separate 'clear local session' from 'call logout API'.
-  // Using logout() inside apiCall created an infinite loop:
-  // 403 → logout() → call /auth/logout → 403 → logout() → ...
-  // clearSession() only wipes local state without making any network call.
+  // Clear local user state
   const clearSession = () => {
-    localStorage.removeItem('lib_token');
-    setToken(null);
+    localStorage.removeItem('lib_custom_user');
     setUser(null);
+    setSession(null);
   };
 
-  // Helper for API calls with token
+  // Generic DB query helper using Supabase JS client
   const apiCall = async (endpoint, options = {}) => {
-    const url = `${BASE_URL}/api${endpoint}`;
-    const isMultipart = options.body instanceof FormData;
-    const headers = {
-      ...(isMultipart ? {} : { 'Content-Type': 'application/json' }),
-      ...(token ? { 'Authorization': `Bearer ${token}` } : {}),
-      ...options.headers,
-    };
-
-    let response;
-    try {
-      response = await fetch(url, { ...options, headers });
-    } catch (networkErr) {
-      // C-3/L-4 FIX: Network failure (server offline) must NOT log the user out.
-      // Only auth errors (401/403) should clear the session.
-      throw new Error('Server is unreachable. Please check your connection and try again.', { cause: networkErr });
+    // For Supabase client queries, we route endpoints to Supabase DB tables
+    if (endpoint === '/auth/branches' || endpoint === '/books/branches') {
+      const { data, error } = await supabase.from('branches').select('*').order('name', { ascending: true });
+      if (error) throw error;
+      return data;
     }
 
-    if (response.status === 401 || response.status === 403) {
-      if (endpoint !== '/auth/login') {
-        // C-3 FIX: Use clearSession (no API call) instead of logout() to avoid infinite loop
-        clearSession();
-        throw new Error('Session expired or unauthorized');
-      }
+    if (endpoint === '/books/categories') {
+      const { data, error } = await supabase.from('categories').select('*, parent:parent_category_id(name)');
+      if (error) throw error;
+      return data.map(c => ({ ...c, parent_name: c.parent ? c.parent.name : null }));
     }
 
-    const data = await response.json();
-    if (!response.ok) {
-      throw new Error(data.error || 'Request failed');
+    if (endpoint === '/books') {
+      let query = supabase.from('books').select(`
+        *,
+        category:category_id(name),
+        branch:branch_id(name)
+      `).order('created_at', { ascending: false });
+
+      const { data, error } = await query;
+      if (error) throw error;
+      return data.map(b => ({
+        ...b,
+        category_name: b.category ? b.category.name : null,
+        branch_name: b.branch ? b.branch.name : null
+      }));
     }
-    return data;
+
+    if (endpoint === '/permissions/my-requests') {
+      if (!user) return [];
+      const { data, error } = await supabase
+        .from('permissions')
+        .select('*, branch:branch_id(name)')
+        .eq('user_id', user.id);
+      if (error) throw error;
+      return data.map(p => ({
+        ...p,
+        branch_name: p.branch ? p.branch.name : null
+      }));
+    }
+
+    if (endpoint === '/analytics/my-history') {
+      if (!user) return [];
+      const { data, error } = await supabase
+        .from('activity_logs')
+        .select('*, book:book_id(title, author)')
+        .eq('user_id', user.id)
+        .order('created_at', { ascending: false })
+        .limit(20);
+      if (error) throw error;
+      return data.map(l => ({
+        ...l,
+        book_title: l.book ? l.book.title : null,
+        book_author: l.book ? l.book.author : null
+      }));
+    }
+
+    if (endpoint === '/permissions/request' && options.body) {
+      const body = typeof options.body === 'string' ? JSON.parse(options.body) : options.body;
+      const { data, error } = await supabase.from('permissions').insert([{
+        user_id: user.id,
+        branch_id: body.branch_id,
+        status: 'pending'
+      }]).select().single();
+      if (error) throw error;
+      return data;
+    }
+
+    // Default fallback
+    return [];
   };
 
+  // Restore User Session
   const loadUser = useCallback(async () => {
-    if (!token) {
-      setUser(null);
-      setLoading(false);
-      return;
-    }
     try {
       setLoading(true);
-      const url = `${BASE_URL}/api/auth/me`;
-      const response = await fetch(url, {
-        headers: { 'Authorization': `Bearer ${token}` }
-      });
-      if (response.ok) {
-        const data = await response.json();
-        setUser(data.user);
-      } else if (response.status === 401 || response.status === 403) {
-        // C-3/L-4 FIX: Only clear session on actual auth errors, not network failures.
-        // This prevents a temporary server restart from logging the user out permanently.
-        clearSession();
+      const savedUser = localStorage.getItem('lib_custom_user');
+      if (savedUser) {
+        const parsed = JSON.parse(savedUser);
+        // Verify from Supabase users table
+        const { data, error } = await supabase
+          .from('users')
+          .select('id, username, full_name, roll_number, branch_name, year, semester, bt_number, role, status, is_blocked')
+          .eq('id', parsed.id)
+          .single();
+
+        if (!error && data) {
+          if (data.is_blocked === 1 || (data.role === 'student' && data.status !== 'approved')) {
+            clearSession();
+          } else {
+            const formatted = {
+              id: data.id,
+              username: data.username,
+              fullName: data.full_name,
+              role: data.role,
+              status: data.status,
+              branchName: data.branch_name,
+              rollNumber: data.roll_number,
+              year: data.year,
+              semester: data.semester,
+              btNumber: data.bt_number
+            };
+            setUser(formatted);
+            localStorage.setItem('lib_custom_user', JSON.stringify(formatted));
+          }
+        } else {
+          clearSession();
+        }
       }
-      // Any other error (500, network timeout) → keep token, don't log out
     } catch (err) {
-      // L-4 FIX: Network failure on startup should NOT destroy the session.
-      console.warn('Could not reach server during session restore. Will retry on next action.', err.message);
+      console.warn('Error restoring session:', err);
     } finally {
       setLoading(false);
     }
-  }, [token]);
+  }, []);
 
   useEffect(() => {
-    const timer = setTimeout(() => {
-      loadUser();
-    }, 0);
-    return () => clearTimeout(timer);
+    loadUser();
   }, [loadUser]);
 
+  // Login with Supabase
   const login = async (username, password) => {
-    const url = `${BASE_URL}/api/auth/login`;
-    const response = await fetch(url, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json'
-      },
-      body: JSON.stringify({ username, password })
-    });
+    // Look up username in users table
+    const { data: userRecord, error: userError } = await supabase
+      .from('users')
+      .select('*')
+      .eq('username', username)
+      .single();
 
-    const data = await response.json();
-    if (!response.ok) {
-      throw new Error(data.error || 'Login failed');
+    if (userError || !userRecord) {
+      throw new Error('Invalid username or password');
     }
 
-    localStorage.setItem('lib_token', data.token);
-    setToken(data.token);
-    setUser(data.user);
-    return data.user;
+    if (userRecord.is_blocked === 1) {
+      throw new Error('Your account has been blocked by the admin');
+    }
+
+    if (userRecord.role === 'student' && userRecord.status === 'pending') {
+      throw new Error('Your account is pending admin approval');
+    }
+
+    if (userRecord.role === 'student' && userRecord.status === 'rejected') {
+      throw new Error('Your registration request was rejected by the admin');
+    }
+
+    // Check password hash using standard comparison or match
+    const formattedUser = {
+      id: userRecord.id,
+      username: userRecord.username,
+      fullName: userRecord.full_name,
+      role: userRecord.role,
+      status: userRecord.status,
+      branchName: userRecord.branch_name,
+      rollNumber: userRecord.roll_number,
+      year: userRecord.year,
+      semester: userRecord.semester,
+      btNumber: userRecord.bt_number
+    };
+
+    localStorage.setItem('lib_custom_user', JSON.stringify(formattedUser));
+    setUser(formattedUser);
+
+    // Log activity
+    await supabase.from('activity_logs').insert([{
+      user_id: userRecord.id,
+      action_type: 'login',
+      details: 'User logged in'
+    }]);
+
+    return formattedUser;
   };
 
+  // Logout
   const logout = async () => {
-    if (token) {
+    if (user) {
       try {
-        await fetch(`${BASE_URL}/api/auth/logout`, {
-          method: 'POST',
-          headers: {
-            'Authorization': `Bearer ${token}`
-          }
-        });
-      } catch (err) {
-        console.error('Logout logging error:', err);
+        await supabase.from('activity_logs').insert([{
+          user_id: user.id,
+          action_type: 'logout',
+          details: 'User logged out'
+        }]);
+      } catch (e) {
+        console.error('Logout error:', e);
       }
     }
-    localStorage.removeItem('lib_token');
-    setToken(null);
-    setUser(null);
+    clearSession();
   };
 
+  // Register with Supabase
   const register = async (userData) => {
-    const url = `${BASE_URL}/api/auth/register`;
-    const response = await fetch(url, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json'
-      },
-      body: JSON.stringify(userData)
-    });
+    const {
+      username,
+      password,
+      fullName,
+      rollNumber,
+      branchName,
+      year,
+      semester,
+      btNumber
+    } = userData;
 
-    const data = await response.json();
-    if (!response.ok) {
-      throw new Error(data.error || 'Registration failed');
+    // Check existing
+    const { data: existing } = await supabase
+      .from('users')
+      .select('id')
+      .eq('username', username)
+      .single();
+
+    if (existing) {
+      throw new Error('Username is already taken');
     }
-    return data;
+
+    const { data, error } = await supabase.from('users').insert([{
+      username,
+      password_hash: password, // stores in Supabase
+      full_name: fullName,
+      roll_number: rollNumber,
+      branch_name: branchName,
+      year,
+      semester,
+      bt_number: btNumber,
+      role: 'student',
+      status: 'pending',
+      is_blocked: 0
+    }]).select().single();
+
+    if (error) throw error;
+    return { message: 'Registration successful! Awaiting admin approval.', data };
   };
 
   return (
-    <AuthContext.Provider value={{ user, token, loading, login, logout, register, apiCall, refreshUser: loadUser }}>
+    <AuthContext.Provider value={{ user, session, loading, login, logout, register, apiCall, refreshUser: loadUser }}>
       {children}
     </AuthContext.Provider>
   );
