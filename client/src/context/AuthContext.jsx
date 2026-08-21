@@ -213,23 +213,37 @@ export const AuthProvider = ({ children }) => {
 
     // 6. Analytics & Logs
     if (endpoint === '/analytics/dashboard') {
-      const [{ count: totalUsers }, { count: totalBooks }, { count: totalDownloads }] = await Promise.all([
-        supabase.from('users').select('*', { count: 'exact', head: true }),
+      const [{ count: totalStudents }, { count: totalBooks }, { count: totalDownloads }, { count: totalViews }, { count: totalLogins }, { count: totalLogouts }] = await Promise.all([
+        supabase.from('users').select('*', { count: 'exact', head: true }).eq('role', 'student'),
         supabase.from('books').select('*', { count: 'exact', head: true }),
-        supabase.from('activity_logs').select('*', { count: 'exact', head: true }).eq('action_type', 'download')
+        supabase.from('activity_logs').select('*', { count: 'exact', head: true }).eq('action_type', 'download'),
+        supabase.from('activity_logs').select('*', { count: 'exact', head: true }).eq('action_type', 'view'),
+        supabase.from('activity_logs').select('*', { count: 'exact', head: true }).eq('action_type', 'login'),
+        supabase.from('activity_logs').select('*', { count: 'exact', head: true }).eq('action_type', 'logout')
       ]);
 
-      const { data: logsData } = await supabase.from('activity_logs').select('*, user:user_id(full_name), book:book_id(title)').order('created_at', { ascending: false }).limit(10);
+      const { data: logsData } = await supabase.from('activity_logs').select('*, user:user_id(full_name, role, roll_number), book:book_id(title)').order('created_at', { ascending: false }).limit(10);
 
       return {
-        totalUsers: totalUsers || 0,
-        totalBooks: totalBooks || 0,
-        totalDownloads: totalDownloads || 0,
-        recentActivity: (logsData || []).map(l => ({
+        stats: {
+          logins: totalLogins || 0,
+          logouts: totalLogouts || 0,
+          downloads: totalDownloads || 0,
+          views: totalViews || 0,
+          books: totalBooks || 0,
+          students: totalStudents || 0
+        },
+        mostReadPerBranch: [],
+        bestBook: null,
+        topUser: null,
+        activityLogs: (logsData || []).map(l => ({
           ...l,
-          user_name: l.user ? l.user.full_name : null,
+          full_name: l.user ? l.user.full_name : null,
+          role: l.user ? l.user.role : null,
+          roll_number: l.user ? l.user.roll_number : null,
           book_title: l.book ? l.book.title : null
-        }))
+        })),
+        branchPerformance: []
       };
     }
 
