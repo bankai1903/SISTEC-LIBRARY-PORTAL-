@@ -88,14 +88,15 @@ initDatabase().then(async () => {
   try {
     await seed();
   } catch (seedErr) {
-    console.error('Failed to auto-seed database on startup:', seedErr);
+    console.warn('Database seeding note:', seedErr.message);
   }
+}).catch(err => {
+  console.warn('Database initialization note:', err.message);
+}).finally(() => {
   app.listen(PORT, () => {
     console.log(`=============================================`);
     console.log(` Library Management Server is active!`);
     console.log(` Running on: http://localhost:${PORT}`);
     console.log(`=============================================`);
   });
-}).catch(err => {
-  console.error('Failed to initialize database before server start:', err);
 });

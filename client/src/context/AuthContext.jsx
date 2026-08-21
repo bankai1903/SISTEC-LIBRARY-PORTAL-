@@ -39,9 +39,9 @@ export const AuthProvider = ({ children }) => {
       return (data || []).map(c => ({ ...c, parent_name: c.parent ? c.parent.name : null }));
     }
 
-    // 3. Books
-    if (endpoint === '/books') {
-      if (method === 'GET') {
+    // 3. Books & PDF Storage
+    if (endpoint === '/books' || endpoint.startsWith('/books/')) {
+      if (endpoint === '/books' && method === 'GET') {
         const { data, error } = await supabase.from('books').select(`
           *,
           category:category_id(name),
@@ -54,6 +54,64 @@ export const AuthProvider = ({ children }) => {
           branch_name: b.branch ? b.branch.name : null
         }));
       }
+
+      // Add or Edit Book with PDF file
+      if (options.body instanceof FormData) {
+        const formData = options.body;
+        const title = formData.get('title');
+        const author = formData.get('author');
+        const category_id = parseInt(formData.get('category_id'));
+        const branch_id = parseInt(formData.get('branch_id'));
+        const priority = formData.get('priority');
+        const pdfFile = formData.get('pdf');
+
+        let pdf_url = null;
+        if (pdfFile && pdfFile.name) {
+          const fileName = `${Date.now()}-${pdfFile.name.replace(/[^a-zA-Z0-9.\-_]/g, '')}`;
+          const { error: uploadErr } = await supabase.storage
+            .from('pdfs')
+            .upload(fileName, pdfFile, { upsert: true });
+
+          if (!uploadErr) {
+            const { data: publicUrlData } = supabase.storage.from('pdfs').getPublicUrl(fileName);
+            pdf_url = publicUrlData ? publicUrlData.publicUrl : null;
+          } else {
+            console.warn('Storage upload note:', uploadErr.message);
+            pdf_url = `/uploads/${fileName}`;
+          }
+        }
+
+        const bookPayload = { title, author, category_id, branch_id, priority };
+        if (pdf_url) bookPayload.pdf_url = pdf_url;
+
+        if (endpoint.startsWith('/books/') && method === 'PUT') {
+          const bookId = endpoint.split('/').pop();
+          const { data, error } = await supabase.from('books').update(bookPayload).eq('id', bookId).select().single();
+          if (error) throw error;
+          return { message: 'Book updated successfully', data };
+        } else {
+          const { data, error } = await supabase.from('books').insert([bookPayload]).select().single();
+          if (error) throw error;
+          return { message: 'Book created successfully', data };
+        }
+      }
+
+      // Delete Single Book
+      if (endpoint.startsWith('/books/') && method === 'DELETE') {
+        const bookId = endpoint.split('/').pop();
+        const { error } = await supabase.from('books').delete().eq('id', bookId);
+        if (error) throw error;
+        return { message: 'Book deleted successfully' };
+      }
+
+      // Bulk Delete Books
+      if (endpoint === '/books/bulk-delete' && method === 'POST') {
+        const { bookIds } = body;
+        const { error } = await supabase.from('books').delete().in('id', bookIds);
+        if (error) throw error;
+        return { message: 'Selected books deleted successfully' };
+      }
+
       if (method === 'POST') {
         const { data, error } = await supabase.from('books').insert([body]).select().single();
         if (error) throw error;
