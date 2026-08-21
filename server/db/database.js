@@ -18,8 +18,7 @@ const pool = new Pool({
   connectionString: isPlaceholder ? undefined : connectionString,
   ssl: connectionString && (connectionString.includes('supabase') || connectionString.includes('neon') || connectionString.includes('render'))
     ? { rejectUnauthorized: false }
-    : false,
-  family: 4 // Force IPv4 to prevent ENETUNREACH network errors on platforms without IPv6 support (e.g. Render)
+    : false
 });
 
 // Helper function to translate SQLite "?" placeholders to PostgreSQL "$1, $2, ..."
