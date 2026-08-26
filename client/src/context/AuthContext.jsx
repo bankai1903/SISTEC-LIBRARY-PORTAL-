@@ -55,6 +55,79 @@ export const AuthProvider = ({ children }) => {
         }));
       }
 
+      // Bulk Upload Books (multiple PDFs)
+      if (endpoint === '/books/bulk' && method === 'POST' && options.body instanceof FormData) {
+        const formData = options.body;
+        const category_id = parseInt(formData.get('category_id'));
+        const branch_id = parseInt(formData.get('branch_id'));
+        const priority = formData.get('priority');
+        const sharedAuthor = (formData.get('author') || '').trim() || 'Unknown';
+        const pdfFiles = formData.getAll('pdfs');
+
+        let imported = 0, skipped = 0, errors = 0;
+        const results = [];
+
+        for (const pdfFile of pdfFiles) {
+          const rawName = pdfFile.name.replace(/\.pdf$/i, '');
+          const title = rawName.replace(/[_\-]+/g, ' ').replace(/\s{2,}/g, ' ').trim();
+
+          try {
+            // Check for duplicate (same title + branch)
+            const { data: existing } = await supabase
+              .from('books')
+              .select('id')
+              .eq('title', title)
+              .eq('branch_id', branch_id)
+              .maybeSingle();
+
+            if (existing) {
+              skipped++;
+              results.push({ file: pdfFile.name, title, status: 'skipped', reason: 'Already exists' });
+              continue;
+            }
+
+            // Upload PDF to Supabase Storage
+            const fileName = `${Date.now()}-${pdfFile.name.replace(/[^a-zA-Z0-9.\-_]/g, '')}`;
+            let pdf_url = null;
+            const { error: uploadErr } = await supabase.storage
+              .from('pdfs')
+              .upload(fileName, pdfFile, { upsert: true });
+
+            if (!uploadErr) {
+              const { data: publicUrlData } = supabase.storage.from('pdfs').getPublicUrl(fileName);
+              pdf_url = publicUrlData ? publicUrlData.publicUrl : null;
+            } else {
+              console.warn('Storage upload note for', pdfFile.name, ':', uploadErr.message);
+            }
+
+            const bookPayload = { title, author: sharedAuthor, category_id, branch_id, priority };
+            if (pdf_url) bookPayload.pdf_url = pdf_url;
+
+            const { data: inserted, error: insertErr } = await supabase
+              .from('books')
+              .insert([bookPayload])
+              .select()
+              .single();
+
+            if (insertErr) throw insertErr;
+
+            imported++;
+            results.push({ file: pdfFile.name, title, status: 'success', bookId: inserted.id });
+          } catch (err) {
+            errors++;
+            results.push({ file: pdfFile.name, title, status: 'error', reason: err.message });
+          }
+        }
+
+        return {
+          message: `Bulk import complete: ${imported} added, ${skipped} skipped, ${errors} errors`,
+          imported,
+          skipped,
+          errors,
+          results
+        };
+      }
+
       // Add or Edit Book with PDF file
       if (options.body instanceof FormData) {
         const formData = options.body;
