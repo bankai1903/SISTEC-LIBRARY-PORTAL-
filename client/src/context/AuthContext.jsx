@@ -51,7 +51,8 @@ export const AuthProvider = ({ children }) => {
         return (data || []).map(b => ({
           ...b,
           category_name: b.category ? b.category.name : null,
-          branch_name: b.branch ? b.branch.name : null
+          branch_name: b.branch ? b.branch.name : null,
+          hasAccess: true  // All books unlocked for all users
         }));
       }
 
