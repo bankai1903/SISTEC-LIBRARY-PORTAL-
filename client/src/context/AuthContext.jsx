@@ -253,8 +253,12 @@ export const AuthProvider = ({ children }) => {
       if (error) throw error;
       return (data || []).map(p => ({
         ...p,
-        user_name: p.user ? p.user.full_name : null,
+        full_name: p.user ? p.user.full_name : null,
         roll_number: p.user ? p.user.roll_number : null,
+        student_branch: p.user ? p.user.branch_name : null,
+        requested_branch_name: p.branch ? p.branch.name : null,
+        // keep legacy aliases too
+        user_name: p.user ? p.user.full_name : null,
         user_branch: p.user ? p.user.branch_name : null,
         branch_name: p.branch ? p.branch.name : null
       }));
@@ -267,7 +271,7 @@ export const AuthProvider = ({ children }) => {
       return (data || []).map(p => ({ ...p, branch_name: p.branch ? p.branch.name : null }));
     }
 
-    if (endpoint.startsWith('/permissions/action/')) {
+    if (endpoint.startsWith('/permissions/action/') || endpoint.startsWith('/permissions/approve/')) {
       const permId = endpoint.split('/').pop();
       const { data, error } = await supabase.from('permissions').update({ status: body.status }).eq('id', permId).select().single();
       if (error) throw error;
