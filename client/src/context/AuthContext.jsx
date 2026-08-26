@@ -384,37 +384,45 @@ export const AuthProvider = ({ children }) => {
   const loadUser = useCallback(async () => {
     try {
       setLoading(true);
-      const savedUser = localStorage.getItem('lib_custom_user');
-      if (savedUser) {
-        const parsed = JSON.parse(savedUser);
-        const { data, error } = await supabase
-          .from('users')
-          .select('id, username, full_name, roll_number, branch_name, year, semester, bt_number, role, status, is_blocked')
-          .eq('id', parsed.id)
-          .single();
+      const { data: { session: currentSession }, error: sessionError } = await supabase.auth.getSession();
+      
+      if (sessionError || !currentSession) {
+        clearSession();
+        return;
+      }
 
-        if (!error && data) {
-          if (data.is_blocked === 1 || (data.role === 'student' && data.status !== 'approved')) {
-            clearSession();
-          } else {
-            const formatted = {
-              id: data.id,
-              username: data.username,
-              fullName: data.full_name,
-              role: data.role,
-              status: data.status,
-              branchName: data.branch_name,
-              rollNumber: data.roll_number,
-              year: data.year,
-              semester: data.semester,
-              btNumber: data.bt_number
-            };
-            setUser(formatted);
-            localStorage.setItem('lib_custom_user', JSON.stringify(formatted));
-          }
-        } else {
+      setSession(currentSession);
+      const authUserId = currentSession.user.id;
+
+      const { data, error } = await supabase
+        .from('users')
+        .select('id, username, full_name, roll_number, branch_name, year, semester, bt_number, role, status, is_blocked')
+        .eq('id', authUserId)
+        .single();
+
+      if (!error && data) {
+        if (data.is_blocked === 1 || (data.role === 'student' && data.status !== 'approved')) {
+          await supabase.auth.signOut();
           clearSession();
+        } else {
+          const formatted = {
+            id: data.id,
+            username: data.username,
+            fullName: data.full_name,
+            role: data.role,
+            status: data.status,
+            branchName: data.branch_name,
+            rollNumber: data.roll_number,
+            year: data.year,
+            semester: data.semester,
+            btNumber: data.bt_number
+          };
+          setUser(formatted);
+          localStorage.setItem('lib_custom_user', JSON.stringify(formatted));
         }
+      } else {
+        await supabase.auth.signOut();
+        clearSession();
       }
     } catch (err) {
       console.warn('Error restoring session:', err);
@@ -425,29 +433,57 @@ export const AuthProvider = ({ children }) => {
 
   useEffect(() => {
     loadUser();
+
+    // Listen for auth state changes
+    const { data: authListener } = supabase.auth.onAuthStateChange(async (event, currentSession) => {
+      if (event === 'SIGNED_OUT') {
+        clearSession();
+      } else if (event === 'SIGNED_IN' || event === 'TOKEN_REFRESHED') {
+        loadUser();
+      }
+    });
+
+    return () => {
+      authListener.subscription.unsubscribe();
+    };
   }, [loadUser]);
 
   // Login
   const login = async (username, password) => {
-    const { data: userRecord, error: userError } = await supabase
-      .from('users')
-      .select('*')
-      .eq('username', username)
-      .single();
+    const fakeEmail = `${username.toLowerCase()}@sistec.local`;
+    
+    const { data: authData, error: authError } = await supabase.auth.signInWithPassword({
+      email: fakeEmail,
+      password: password
+    });
 
-    if (userError || !userRecord) {
+    if (authError || !authData.user) {
       throw new Error('Invalid username or password');
     }
 
+    const { data: userRecord, error: userError } = await supabase
+      .from('users')
+      .select('*')
+      .eq('id', authData.user.id)
+      .single();
+
+    if (userError || !userRecord) {
+      await supabase.auth.signOut();
+      throw new Error('User profile not found in database');
+    }
+
     if (userRecord.is_blocked === 1) {
+      await supabase.auth.signOut();
       throw new Error('Your account has been blocked by the admin');
     }
 
     if (userRecord.role === 'student' && userRecord.status === 'pending') {
+      await supabase.auth.signOut();
       throw new Error('Your account is pending admin approval');
     }
 
     if (userRecord.role === 'student' && userRecord.status === 'rejected') {
+      await supabase.auth.signOut();
       throw new Error('Your registration request was rejected by the admin');
     }
 
@@ -471,7 +507,7 @@ export const AuthProvider = ({ children }) => {
       await supabase.from('activity_logs').insert([{
         user_id: userRecord.id,
         action_type: 'login',
-        details: 'User logged in'
+        details: 'User logged in securely'
       }]);
     } catch (e) {
       console.warn('Could not write login activity log:', e);
@@ -490,9 +526,10 @@ export const AuthProvider = ({ children }) => {
           details: 'User logged out'
         }]);
       } catch (e) {
-        console.error('Logout error:', e);
+        console.error('Logout log error:', e);
       }
     }
+    await supabase.auth.signOut();
     clearSession();
   };
 
@@ -509,6 +546,7 @@ export const AuthProvider = ({ children }) => {
       btNumber
     } = userData;
 
+    // First check if username exists in our public table
     const { data: existing } = await supabase
       .from('users')
       .select('id')
@@ -519,9 +557,27 @@ export const AuthProvider = ({ children }) => {
       throw new Error('Username is already taken');
     }
 
+    // Sign up with Supabase Auth using a synthetic email
+    const fakeEmail = `${username.toLowerCase()}@sistec.local`;
+    const { data: authData, error: authError } = await supabase.auth.signUp({
+      email: fakeEmail,
+      password: password,
+    });
+
+    if (authError) {
+      throw new Error(authError.message);
+    }
+
+    if (!authData.user) {
+      throw new Error('Registration failed, please try again.');
+    }
+
+    const userId = authData.user.id; // UUID from Supabase Auth
+
+    // Insert the public user profile
     const { data, error } = await supabase.from('users').insert([{
+      id: userId,
       username,
-      password_hash: password,
       full_name: fullName,
       roll_number: rollNumber,
       branch_name: branchName,
@@ -533,7 +589,14 @@ export const AuthProvider = ({ children }) => {
       is_blocked: 0
     }]).select().single();
 
-    if (error) throw error;
+    if (error) {
+      // Rollback logic could go here if needed
+      throw new Error('Failed to create user profile: ' + error.message);
+    }
+    
+    // Automatically sign out so they wait for approval
+    await supabase.auth.signOut();
+
     return { message: 'Registration successful! Awaiting admin approval.', data };
   };
 
