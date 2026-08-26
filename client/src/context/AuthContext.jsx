@@ -279,14 +279,41 @@ export const AuthProvider = ({ children }) => {
     }
 
     if (endpoint === '/permissions/request' && method === 'POST') {
+      const branchId = body.branchId || body.branch_id;
+
+      // Check if request already exists
+      const { data: existing } = await supabase
+        .from('permissions')
+        .select('id, status')
+        .eq('user_id', user.id)
+        .eq('branch_id', branchId)
+        .maybeSingle();
+
+      if (existing) {
+        if (existing.status === 'pending') {
+          throw new Error('You already have a pending request for this branch');
+        }
+        // Re-open a rejected request back to pending
+        const { data, error } = await supabase
+          .from('permissions')
+          .update({ status: 'pending' })
+          .eq('id', existing.id)
+          .select()
+          .single();
+        if (error) throw error;
+        return data;
+      }
+
+      // New request
       const { data, error } = await supabase.from('permissions').insert([{
         user_id: user.id,
-        branch_id: body.branchId || body.branch_id,
+        branch_id: branchId,
         status: 'pending'
       }]).select().single();
       if (error) throw error;
       return data;
     }
+
 
     // 6. Analytics & Logs
     if (endpoint === '/analytics/dashboard') {
