@@ -8,7 +8,7 @@ const BookReader = ({ book, onClose }) => {
   // H-3 FIX: totalPages is only meaningful for the mock reader.
   // For real uploaded PDFs rendered in an iframe, we use a large ceiling value
   // since we cannot determine actual PDF page count without PDF.js.
-  const isUploaded = book.pdf_url && book.pdf_url.startsWith('/uploads/');
+  const isUploaded = book.pdf_url && (book.pdf_url.startsWith('/uploads/') || book.pdf_url.startsWith('http'));
   const [totalPages] = useState(isUploaded ? 9999 : 60);
   const [saving, setSaving] = useState(false);
 
@@ -109,7 +109,9 @@ const BookReader = ({ book, onClose }) => {
     );
   };
 
-  const fileUrl = isUploaded ? `${BASE_URL}${book.pdf_url}` : null;
+  const fileUrl = isUploaded 
+    ? (book.pdf_url.startsWith('http') ? book.pdf_url : `${BASE_URL}${book.pdf_url}`)
+    : null;
 
   if (isUploaded) {
     return (
