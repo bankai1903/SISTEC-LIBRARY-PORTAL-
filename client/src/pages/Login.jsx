@@ -82,9 +82,7 @@ const Login = ({ onToggleView }) => {
           <Settings size={16} />
         </button>
 
-        {/* Header */}
-        <div style={{ textAlign: 'center', marginBottom: '32px' }}>
-        </div>
+
 
         {/* Server Config Drawer */}
         {showServerConfig && (

@@ -34,7 +34,6 @@ const AppContent = () => {
           marginBottom: '16px'
         }} />
         <p style={{ fontFamily: 'var(--font-sans)', fontSize: '0.95rem' }}>Authenticating user session...</p>
-        <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
       </div>
     );
   }
@@ -50,7 +49,12 @@ const AppContent = () => {
 
   // Admin View
   if (user.role === 'admin') {
-    return <AdminDashboard />;
+    return (
+      <>
+        <AdminDashboard />
+        <ThemeToggle />
+      </>
+    );
   }
 
   // Student View (Reader or Dashboard)
@@ -61,14 +65,18 @@ const AppContent = () => {
           book={selectedBook}
           onClose={() => setSelectedBook(null)}
         />
+        <ThemeToggle />
       </div>
     );
   }
 
   return (
-    <Dashboard
-      onSelectBook={(book) => setSelectedBook(book)}
-    />
+    <>
+      <Dashboard
+        onSelectBook={(book) => setSelectedBook(book)}
+      />
+      <ThemeToggle />
+    </>
   );
 };
 
@@ -77,8 +85,6 @@ function App() {
     <ThemeProvider>
       <AuthProvider>
         <AppContent />
-        {/* Floating Theme Studio – always visible on every page */}
-        <ThemeToggle />
       </AuthProvider>
     </ThemeProvider>
   );

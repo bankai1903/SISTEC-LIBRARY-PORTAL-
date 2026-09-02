@@ -18,9 +18,16 @@ export const COLOR_PALETTES = [
 
 // Derive glow/shadow colours from a hex value
 const hexToRgb = (hex) => {
-  const r = parseInt(hex.slice(1, 3), 16);
-  const g = parseInt(hex.slice(3, 5), 16);
-  const b = parseInt(hex.slice(5, 7), 16);
+  if (!hex || typeof hex !== 'string') return '0, 0, 0';
+  let cleanHex = hex.replace('#', '');
+  if (cleanHex.length === 3) {
+    cleanHex = cleanHex.split('').map(c => c + c).join('');
+  }
+  if (cleanHex.length !== 6) return '0, 0, 0';
+  
+  const r = parseInt(cleanHex.slice(0, 2), 16);
+  const g = parseInt(cleanHex.slice(2, 4), 16);
+  const b = parseInt(cleanHex.slice(4, 6), 16);
   return `${r}, ${g}, ${b}`;
 };
 

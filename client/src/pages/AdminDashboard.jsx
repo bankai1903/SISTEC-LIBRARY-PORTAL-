@@ -30,9 +30,12 @@ const AdminDashboard = () => {
   const [selectedBookIds, setSelectedBookIds] = useState([]);
   const [showBulkDeleteBooksConfirm, setShowBulkDeleteBooksConfirm] = useState(false);
   const [bulkDeleteBooksLoading, setBulkDeleteBooksLoading] = useState(false);
+  const [deleteBookConfirm, setDeleteBookConfirm] = useState(null); // { id, title }
+  const [deleteBookLoading, setDeleteBookLoading] = useState(false);
 
   // Book CRUD Modal State
   const [showBookModal, setShowBookModal] = useState(false);
+  const [bookSaving, setBookSaving] = useState(false);
   const [editingBook, setEditingBook] = useState(null); // null for add, book object for edit
   const [bookFormData, setBookFormData] = useState({
     title: '',
@@ -78,7 +81,7 @@ const AdminDashboard = () => {
     const q = studentSearch.toLowerCase();
     return students.filter(s => {
       const matchSearch = !q ||
-        s.full_name.toLowerCase().includes(q) ||
+        s.full_name?.toLowerCase().includes(q) ||
         s.roll_number?.toLowerCase().includes(q) ||
         s.username?.toLowerCase().includes(q) ||
         s.bt_number?.toLowerCase().includes(q);
@@ -94,8 +97,8 @@ const AdminDashboard = () => {
     return books.filter(b => 
       b.title.toLowerCase().includes(q) ||
       b.author.toLowerCase().includes(q) ||
-      b.branch_name.toLowerCase().includes(q) ||
-      b.category_name.toLowerCase().includes(q)
+      b.branch_name?.toLowerCase().includes(q) ||
+      b.category_name?.toLowerCase().includes(q)
     );
   }, [books, searchQuery]);
 
@@ -114,7 +117,6 @@ const AdminDashboard = () => {
   }, []);
 
   const fetchAllAdminData = useCallback(async () => {
-    await Promise.resolve();
     try {
       setLoading(true);
       const [dash, pUsers, pReqs, bList, brList, catList, allStudents] = await Promise.all([
@@ -189,9 +191,7 @@ const AdminDashboard = () => {
     setSelectedBookIds([]);
   }, [activeTab]);
 
-  // M-3 FIX: Fetch paginated audit logs
   const fetchLogs = useCallback(async (page = 1) => {
-    await Promise.resolve();
     try {
       setLogsLoading(true);
       const data = await apiCall(`/analytics/logs?page=${page}&limit=50`);
@@ -372,10 +372,11 @@ const AdminDashboard = () => {
   };
 
   // Book Delete Action
-  const handleDeleteBook = async (bookId) => {
-    if (!window.confirm('Are you sure you want to delete this book?')) return;
+  const handleDeleteBook = async () => {
+    if (!deleteBookConfirm) return;
+    setDeleteBookLoading(true);
     try {
-      const data = await apiCall(`/books/${bookId}`, {
+      const data = await apiCall(`/books/${deleteBookConfirm.id}`, {
         method: 'DELETE'
       });
       showFeedback(data.message || 'Book deleted successfully');
@@ -384,8 +385,11 @@ const AdminDashboard = () => {
       setBooks(bList);
       const dash = await apiCall('/analytics/dashboard');
       setDashboardData(dash);
+      setDeleteBookConfirm(null);
     } catch (err) {
       showFeedback(err.message || 'Failed to delete book', 'error');
+    } finally {
+      setDeleteBookLoading(false);
     }
   };
 
@@ -416,9 +420,9 @@ const AdminDashboard = () => {
     setShowBookModal(true);
   };
 
-  // Save Book (Add / Edit)
   const handleSaveBook = async (e) => {
     e.preventDefault();
+    if (bookSaving) return;
     const { title, author, category_id, branch_id, priority } = bookFormData;
     if (!title || !author || !category_id || !branch_id || !priority) {
       showFeedback('All fields except PDF file are required', 'error');
@@ -430,6 +434,7 @@ const AdminDashboard = () => {
       return;
     }
 
+    setBookSaving(true);
     try {
       const formData = new FormData();
       formData.append('title', title);
@@ -464,6 +469,8 @@ const AdminDashboard = () => {
       setDashboardData(dash);
     } catch (err) {
       showFeedback(err.message || 'Failed to save book', 'error');
+    } finally {
+      setBookSaving(false);
     }
   };
 
@@ -655,7 +662,6 @@ const AdminDashboard = () => {
           <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', minHeight: '60vh' }}>
             <div style={{ width: '48px', height: '48px', border: '3px solid rgba(255,255,255,0.1)', borderTopColor: 'var(--primary)', borderRadius: '50%', animation: 'spin 1s linear infinite', marginBottom: '16px' }} />
             <p>Loading administrative dashboard...</p>
-            <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
           </div>
         ) : (
           <>
@@ -1093,7 +1099,7 @@ const AdminDashboard = () => {
                                   <Edit size={14} />
                                 </button>
                                 <button
-                                  onClick={() => handleDeleteBook(b.id)}
+                                  onClick={() => setDeleteBookConfirm({ id: b.id, title: b.title })}
                                   className="btn btn-secondary"
                                   style={{ padding: '6px 10px', borderColor: 'rgba(239, 68, 68, 0.2)', color: 'var(--danger)' }}
                                   title="Delete Book"
@@ -1112,22 +1118,12 @@ const AdminDashboard = () => {
             )}
 
             {/* Students Management Tab */}
-            {activeTab === 'students' && (() => {
-              const statusBadge = (status) => {
-                if (status === 'approved') return <span className="badge badge-success" style={{ fontSize: '0.65rem' }}>Approved</span>;
-                if (status === 'pending')  return <span className="badge badge-warning" style={{ fontSize: '0.65rem' }}>Pending</span>;
-                if (status === 'rejected') return <span className="badge badge-danger"  style={{ fontSize: '0.65rem' }}>Rejected</span>;
-                return null;
-              };
-
-              const uniqueBranches = uniqueStudentBranches;
-
-              return (
-                <div className="animate-fade-in">
-                  {/* Header */}
-                  <div style={{ marginBottom: '32px' }}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '8px' }}>
-                      <div style={{ padding: '10px', borderRadius: '12px', background: 'rgba(99,102,241,0.15)', color: 'var(--primary)' }}>
+            {activeTab === 'students' && (
+              <div className="animate-fade-in">
+                {/* Header */}
+                <div style={{ marginBottom: '32px' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '8px' }}>
+                    <div style={{ padding: '10px', borderRadius: '12px', background: 'rgba(99,102,241,0.15)', color: 'var(--primary)' }}>
                         <UserCheck size={22} />
                       </div>
                       <div>
@@ -1187,7 +1183,7 @@ const AdminDashboard = () => {
                       style={{ width: '180px' }}
                     >
                       <option value="">All Branches</option>
-                      {uniqueBranches.map(b => <option key={b} value={b}>{b}</option>)}
+                      {uniqueStudentBranches.map(b => <option key={b} value={b}>{b}</option>)}
                     </select>
                     <span style={{ fontSize: '0.8rem', color: 'var(--text-muted)', whiteSpace: 'nowrap' }}>
                       {filteredStudents.length} of {students.length} students
@@ -1293,7 +1289,9 @@ const AdminDashboard = () => {
                                 </td>
                                  <td style={{ padding: '14px 16px' }}>
                                    <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', alignItems: 'flex-start' }}>
-                                     {statusBadge(s.status)}
+                                     {s.status === 'approved' && <span className="badge badge-success" style={{ fontSize: '0.65rem' }}>Approved</span>}
+                                     {s.status === 'pending' && <span className="badge badge-warning" style={{ fontSize: '0.65rem' }}>Pending</span>}
+                                     {s.status === 'rejected' && <span className="badge badge-danger" style={{ fontSize: '0.65rem' }}>Rejected</span>}
                                      {s.is_blocked === 1 && (
                                        <span className="badge badge-danger" style={{ fontSize: '0.65rem', background: 'rgba(239, 68, 68, 0.15)', color: '#ef4444', border: '1px solid rgba(239, 68, 68, 0.3)' }}>Blocked</span>
                                      )}
@@ -1356,8 +1354,7 @@ const AdminDashboard = () => {
                     </div>
                   )}
                 </div>
-              );
-            })()}
+            )}
 
             {/* System Audit Logs Tab */}
             {activeTab === 'logs' && (
@@ -1398,7 +1395,7 @@ const AdminDashboard = () => {
                             else if (log.action_type === 'logout') actionBadgeClass = 'badge-primary';
                             else if (log.action_type === 'download') actionBadgeClass = 'badge-warning';
                             else if (log.action_type === 'admin_action') actionBadgeClass = 'badge-danger';
-                            else if (log.action_type === 'view') actionBadgeClass = 'badge-info';
+                            else if (log.action_type === 'view') actionBadgeClass = 'badge-secondary';
 
                             return (
                               <tr key={log.id || index} style={{ borderBottom: '1px solid rgba(255,255,255,0.05)' }}>
@@ -1787,8 +1784,9 @@ const AdminDashboard = () => {
                   type="submit"
                   className="btn btn-primary"
                   style={{ flex: 1, padding: '12px' }}
+                  disabled={bookSaving}
                 >
-                  Save Book Details
+                  {bookSaving ? 'Saving...' : 'Save Book Details'}
                 </button>
                 <button
                   type="button"
@@ -2037,8 +2035,6 @@ const AdminDashboard = () => {
                 {bulkResults ? 'Close' : 'Cancel'}
               </button>
             </div>
-
-            <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
           </div>
         </div>
       )}
@@ -2089,6 +2085,20 @@ const AdminDashboard = () => {
         >
           <BookOpen size={18} />
           <span>Books</span>
+        </button>
+        <button 
+          onClick={() => setActiveTab('students')}
+          className={`mobile-nav-item ${activeTab === 'students' ? 'active' : ''}`}
+        >
+          <UserCheck size={18} />
+          <span>Students</span>
+        </button>
+        <button 
+          onClick={() => setActiveTab('logs')}
+          className={`mobile-nav-item ${activeTab === 'logs' ? 'active' : ''}`}
+        >
+          <History size={18} />
+          <span>Logs</span>
         </button>
       </nav>
 
@@ -2167,6 +2177,70 @@ const AdminDashboard = () => {
                 style={{ justifyContent: 'center', width: '100%', borderColor: 'rgba(239, 68, 68, 0.2)', color: '#ef4444' }}
               >
                 <X size={16} /> Log Out
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── Delete Book Confirmation Modal ───────────────────────────── */}
+      {deleteBookConfirm && (
+        <div style={{
+          position: 'fixed', top: 0, left: 0, right: 0, bottom: 0,
+          background: 'rgba(5, 7, 12, 0.85)',
+          backdropFilter: 'blur(10px)',
+          display: 'flex', alignItems: 'center', justifyContent: 'center',
+          zIndex: 2000, padding: '20px'
+        }}>
+          <div className="glass-panel animate-fade-in" style={{
+            width: '100%', maxWidth: '440px',
+            padding: '36px', textAlign: 'center',
+            border: '1px solid rgba(239,68,68,0.25)',
+            boxShadow: '0 0 40px rgba(239,68,68,0.12), var(--shadow-glass)'
+          }}>
+            <div style={{
+              width: '64px', height: '64px', borderRadius: '50%', margin: '0 auto 20px',
+              background: 'rgba(239,68,68,0.12)', border: '1px solid rgba(239,68,68,0.3)',
+              display: 'flex', alignItems: 'center', justifyContent: 'center',
+              color: 'var(--danger)'
+            }}>
+              <AlertTriangle size={28} />
+            </div>
+
+            <h3 style={{ fontSize: '1.2rem', marginBottom: '10px' }}>Delete Book?</h3>
+            <p style={{ fontSize: '0.92rem', color: 'var(--text-secondary)', marginBottom: '8px' }}>
+              You are about to permanently delete the catalog entry and PDF file for:
+            </p>
+            <div style={{
+              padding: '12px 20px', borderRadius: '10px',
+              background: 'rgba(239,68,68,0.08)', border: '1px solid rgba(239,68,68,0.2)',
+              marginBottom: '20px'
+            }}>
+              <span style={{ fontWeight: 700, fontSize: '1.1rem', color: 'var(--text-primary)' }}>
+                {deleteBookConfirm.title}
+              </span>
+            </div>
+            <p style={{ fontSize: '0.8rem', color: 'var(--text-muted)', marginBottom: '28px', lineHeight: 1.6 }}>
+              This action is <strong style={{ color: 'var(--danger)' }}>irreversible</strong>. Users will lose all reading progress on this book.
+            </p>
+
+            <div style={{ display: 'flex', gap: '12px', justifyContent: 'center' }}>
+              <button
+                onClick={() => setDeleteBookConfirm(null)}
+                className="btn btn-secondary"
+                style={{ padding: '10px 24px', minWidth: '120px' }}
+                disabled={deleteBookLoading}
+              >
+                <X size={16} /> Cancel
+              </button>
+              <button
+                onClick={handleDeleteBook}
+                className="btn btn-danger"
+                style={{ padding: '10px 24px', minWidth: '140px' }}
+                disabled={deleteBookLoading}
+              >
+                <Trash2 size={16} />
+                {deleteBookLoading ? 'Deleting...' : 'Yes, Delete'}
               </button>
             </div>
           </div>

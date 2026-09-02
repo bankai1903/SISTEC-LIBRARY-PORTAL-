@@ -29,7 +29,7 @@ const BookReader = ({ book, onClose }) => {
       // Step 1: Restore saved reading position
       try {
         const history = await apiCall('/analytics/my-history');
-        const record = history.find(h => h.title === book.title);
+        const record = history.find(h => h.book_title === book.title);
         if (record && record.last_page_read) {
           restoredPage = record.last_page_read;
           setCurrentPage(restoredPage);

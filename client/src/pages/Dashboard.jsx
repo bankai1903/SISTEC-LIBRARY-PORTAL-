@@ -34,7 +34,6 @@ const Dashboard = ({ onSelectBook }) => {
   }, []);
 
   const fetchData = useCallback(async () => {
-    await Promise.resolve();
     try {
       setLoading(true);
       const [booksData, catsData, branchesData, reqsData, histData] = await Promise.all([
@@ -72,6 +71,9 @@ const Dashboard = ({ onSelectBook }) => {
         body: JSON.stringify({ branch_id: branchId })
       });
       showFeedback(data.message || `Requested access for ${branchName}`, 'success');
+      
+      // Optimistically update requests
+      setRequests(prev => [...prev, { branch_id: branchId, status: 'pending' }]);
       
       // Refresh requests list
       const reqsData = await apiCall('/permissions/my-requests');
@@ -150,12 +152,11 @@ const Dashboard = ({ onSelectBook }) => {
         return false;
       }
 
-      // 4. Text Search
       if (search) {
         const query = search.toLowerCase();
-        const matchTitle = book.title.toLowerCase().includes(query);
-        const matchAuthor = book.author.toLowerCase().includes(query);
-        const matchCat = book.category_name.toLowerCase().includes(query);
+        const matchTitle = book.title?.toLowerCase().includes(query) || false;
+        const matchAuthor = book.author?.toLowerCase().includes(query) || false;
+        const matchCat = book.category_name?.toLowerCase().includes(query) || false;
         if (!matchTitle && !matchAuthor && !matchCat) return false;
       }
 
@@ -341,7 +342,6 @@ const Dashboard = ({ onSelectBook }) => {
               <div style={{ textAlign: 'center', padding: '60px' }}>
                 <div style={{ width: '40px', height: '40px', border: '3px solid rgba(255,255,255,0.1)', borderTopColor: 'var(--secondary)', borderRadius: '50%', animation: 'spin 1s linear infinite', margin: '0 auto 16px' }} />
                 <p>Retrieving library catalog...</p>
-                <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
               </div>
             ) : filteredBooks.length === 0 ? (
               <div className="glass-panel" style={{ padding: '60px', textAlign: 'center' }}>

@@ -21,7 +21,7 @@ export const AuthProvider = ({ children }) => {
   };
 
   // Comprehensive Supabase Router for frontend actions
-  const apiCall = async (endpoint, options = {}) => {
+  const apiCall = useCallback(async (endpoint, options = {}) => {
     const method = (options.method || 'GET').toUpperCase();
     const body = options.body ? (typeof options.body === 'string' ? JSON.parse(options.body) : options.body) : {};
 
@@ -48,12 +48,29 @@ export const AuthProvider = ({ children }) => {
           branch:branch_id(name)
         `).order('created_at', { ascending: false });
         if (error) throw error;
-        return (data || []).map(b => ({
-          ...b,
-          category_name: b.category ? b.category.name : null,
-          branch_name: b.branch ? b.branch.name : null,
-          hasAccess: true  // All books unlocked for all users
-        }));
+        
+        let approvedBranches = [];
+        if (user && user.role === 'student') {
+          const { data: perms } = await supabase
+            .from('permissions')
+            .select('branch_id')
+            .eq('user_id', user.id)
+            .eq('status', 'approved');
+          approvedBranches = (perms || []).map(p => p.branch_id);
+        }
+
+        return (data || []).map(b => {
+          let hasAccess = true;
+          if (user && user.role === 'student') {
+            hasAccess = (b.branch_name === user.branchName) || approvedBranches.includes(b.branch_id);
+          }
+          return {
+            ...b,
+            category_name: b.category ? b.category.name : null,
+            branch_name: b.branch ? b.branch.name : null,
+            hasAccess
+          };
+        });
       }
 
       // Bulk Upload Books (multiple PDFs)
@@ -150,8 +167,8 @@ export const AuthProvider = ({ children }) => {
             const { data: publicUrlData } = supabase.storage.from('pdfs').getPublicUrl(fileName);
             pdf_url = publicUrlData ? publicUrlData.publicUrl : null;
           } else {
-            console.warn('Storage upload note:', uploadErr.message);
-            pdf_url = `/uploads/${fileName}`;
+            console.warn('Storage upload error:', uploadErr.message);
+            throw new Error(`PDF upload failed: ${uploadErr.message}`);
           }
         }
 
@@ -241,7 +258,7 @@ export const AuthProvider = ({ children }) => {
     }
 
     // Bulk delete users
-    if (endpoint === '/auth/bulk-delete') {
+    if (endpoint === '/auth/users/bulk-delete') {
       const { userIds } = body;
       const { error } = await supabase.from('users').delete().in('id', userIds);
       if (error) throw error;
@@ -317,6 +334,18 @@ export const AuthProvider = ({ children }) => {
 
 
     // 6. Analytics & Logs
+    if (endpoint === '/analytics/track' && method === 'POST') {
+      if (!user) return null;
+      const { data, error } = await supabase.from('activity_logs').insert([{
+        user_id: user.id,
+        book_id: body.bookId || null,
+        action_type: body.actionType || 'view',
+        details: body.details || 'Viewed book'
+      }]).select().single();
+      if (error) throw error;
+      return data;
+    }
+
     if (endpoint === '/analytics/dashboard') {
       const [{ count: totalStudents }, { count: totalBooks }, { count: totalDownloads }, { count: totalViews }, { count: totalLogins }, { count: totalLogouts }] = await Promise.all([
         supabase.from('users').select('*', { count: 'exact', head: true }).eq('role', 'student'),
@@ -378,7 +407,7 @@ export const AuthProvider = ({ children }) => {
     }
 
     return [];
-  };
+  }, [user]);
 
   // Restore User Session
   const loadUser = useCallback(async () => {
@@ -500,9 +529,6 @@ export const AuthProvider = ({ children }) => {
       btNumber: userRecord.bt_number
     };
 
-    localStorage.setItem('lib_custom_user', JSON.stringify(formattedUser));
-    setUser(formattedUser);
-
     try {
       await supabase.from('activity_logs').insert([{
         user_id: userRecord.id,
@@ -512,6 +538,9 @@ export const AuthProvider = ({ children }) => {
     } catch (e) {
       console.warn('Could not write login activity log:', e);
     }
+
+    localStorage.setItem('lib_custom_user', JSON.stringify(formattedUser));
+    setUser(formattedUser);
 
     return formattedUser;
   };
@@ -551,7 +580,7 @@ export const AuthProvider = ({ children }) => {
       .from('users')
       .select('id')
       .eq('username', username)
-      .single();
+      .maybeSingle();
 
     if (existing) {
       throw new Error('Username is already taken');
